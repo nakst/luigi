@@ -1,5 +1,5 @@
 // TODO UIMenu features - columns.
-// TODO UITextbox features - mouse input, multi-line, clipboard, undo, IME support.
+// TODO UITextbox features - mouse input, multi-line, clipboard, undo, IME support, number dragging.
 // TODO New elements - list view, dialogs, menu bar, drawing canvas.
 // TODO Keyboard navigation - menus, dialogs, tables.
 // TODO Easier to use fonts; GDI font support.
@@ -23,7 +23,9 @@
 #ifdef UI_WINDOWS
 #include <windows.h>
 
-#define UI_ASSERT(x) do { if (!(x)) { MessageBox(0, "Assertion failure on line " _UI_TO_STRING_2(__LINE__), 0, 0); ExitProcess(1); } } while (0)
+#define UI_ASSERT(x) do { if (!(x)) { ui.assertionFailure = true; \
+	MessageBox(0, "Assertion failure on line " _UI_TO_STRING_2(__LINE__), 0, 0); \
+	ExitProcess(1); } } while (0)
 #define UI_CALLOC(x) HeapAlloc(ui.heap, HEAP_ZERO_MEMORY, (x))
 #define UI_FREE(x) HeapFree(ui.heap, 0, (x))
 #define UI_MALLOC(x) HeapAlloc(ui.heap, 0, (x))
@@ -134,6 +136,7 @@ typedef enum UIMessage {
 	UI_MSG_GET_WIDTH, // di = height (if known); return width
 	UI_MSG_GET_HEIGHT, // di = width (if known); return height
 	UI_MSG_FIND_BY_POINT, // dp = pointer to UIFindByPoint; return 1 if handled
+	UI_MSG_CLIENT_PARENT, // dp = pointer to UIElement *, set it to the parent for client elements
 
 	UI_MSG_INPUT_EVENTS_START, // not sent to disabled elements
 	UI_MSG_LEFT_DOWN,
@@ -490,6 +493,13 @@ typedef struct UIMDIChild {
 	struct UIMDIChild *previous;
 } UIMDIChild;
 
+typedef struct UIExpandPane {
+	UIElement e;
+	UIButton *button;
+	UIPanel *panel;
+	bool expanded;
+} UIExpandPane;
+
 void UIInitialise();
 int UIMessageLoop();
 
@@ -498,6 +508,7 @@ UIElement *UIElementCreate(size_t bytes, UIElement *parent, uint32_t flags,
 
 UIButton *UIButtonCreate(UIElement *parent, uint32_t flags, const char *label, ptrdiff_t labelBytes);
 UIColorPicker *UIColorPickerCreate(UIElement *parent, uint32_t flags);
+UIExpandPane *UIExpandPaneCreate(UIElement *parent, uint32_t flags, const char *label, ptrdiff_t labelBytes, uint32_t panelFlags);
 UIGauge *UIGaugeCreate(UIElement *parent, uint32_t flags);
 UIMDIClient *UIMDIClientCreate(UIElement *parent, uint32_t flags);
 UIMDIChild *UIMDIChildCreate(UIElement *parent, uint32_t flags, UIRectangle initialBounds, const char *title, ptrdiff_t titleBytes);
@@ -612,6 +623,7 @@ struct {
 #ifdef UI_WINDOWS
 	HCURSOR cursors[UI_CURSOR_COUNT];
 	HANDLE heap;
+	bool assertionFailure;
 #endif
 
 #ifdef UI_FREETYPE
@@ -1285,12 +1297,15 @@ UIElement *UIElementCreate(size_t bytes, UIElement *parent, uint32_t flags, int 
 	UI_ASSERT(bytes >= sizeof(UIElement));
 	UIElement *element = (UIElement *) UI_CALLOC(bytes);
 	element->flags = flags;
-	element->parent = parent;
 	element->messageClass = message;
 
 	if (!parent && (~flags & UI_ELEMENT_WINDOW)) {
 		UI_ASSERT(ui.parentStackCount);
 		parent = ui.parentStack[ui.parentStackCount - 1];
+	}
+
+	if ((~flags & UI_ELEMENT_NON_CLIENT) && parent) {
+		UIElementMessage(parent, UI_MSG_CLIENT_PARENT, 0, &parent);
 	}
 
 	if (parent) {
@@ -3006,6 +3021,67 @@ UIMDIClient *UIMDIClientCreate(UIElement *parent, uint32_t flags) {
 	return (UIMDIClient *) UIElementCreate(sizeof(UIMDIClient), parent, flags, _UIMDIClientMessage, "MDIClient");
 }
 
+int _UIExpandPaneMessage(UIElement *element, UIMessage message, int di, void *dp) {
+	UIExpandPane *pane = (UIExpandPane *) element;
+	
+	if (message == UI_MSG_GET_HEIGHT) {
+		int height = UIElementMessage(&pane->button->e, message, di, dp);
+
+		if (pane->expanded) {
+			height += UIElementMessage(&pane->panel->e, message, di, dp);
+		}
+
+		return height;
+	} else if (message == UI_MSG_LAYOUT) {
+		UIRectangle bounds = pane->e.bounds;
+		int buttonHeight = UIElementMessage(&pane->button->e, UI_MSG_GET_HEIGHT, UI_RECT_WIDTH(bounds), NULL);
+		UIElementMove(&pane->button->e, UI_RECT_4(bounds.l, bounds.r, bounds.t, bounds.t + buttonHeight), false);
+
+		if (pane->expanded) {
+			pane->panel->e.flags &= ~UI_ELEMENT_HIDE;
+			UIElementMove(&pane->panel->e, UI_RECT_4(bounds.l, bounds.r, bounds.t + buttonHeight, bounds.b), false);
+		} else {
+			pane->panel->e.flags |= UI_ELEMENT_HIDE;
+		}
+	} else if (message == UI_MSG_CLIENT_PARENT) {
+		*(UIElement **) dp = &pane->panel->e;
+	}
+
+	return 0;
+}
+
+void _UIExpandPaneButtonInvoke(void *cp) {
+	UIExpandPane *pane = (UIExpandPane *) cp;
+	pane->expanded = !pane->expanded;
+	if (pane->expanded) pane->button->e.flags |= UI_BUTTON_CHECKED;
+	else pane->button->e.flags &= ~UI_BUTTON_CHECKED;
+
+	UIElement *ancestor = &pane->e;
+
+	while (ancestor) {
+		UIElementRefresh(ancestor);
+
+		// TODO Formalize the notion of height-stability.
+
+		if ((ancestor->messageClass == _UIPanelMessage && (ancestor->flags & UI_PANEL_SCROLL)) 
+				|| (ancestor->messageClass == _UIMDIChildMessage)
+				|| (ancestor->flags & UI_ELEMENT_V_FILL)) {
+			break;
+		}
+
+		ancestor = ancestor->parent;
+	}
+}
+
+UIExpandPane *UIExpandPaneCreate(UIElement *parent, uint32_t flags, const char *label, ptrdiff_t labelBytes, uint32_t panelFlags) {
+	UIExpandPane *pane = (UIExpandPane *) UIElementCreate(sizeof(UIExpandPane), parent, flags, _UIExpandPaneMessage, "ExpandPane");
+	pane->button = UIButtonCreate(parent, UI_ELEMENT_NON_CLIENT, label, labelBytes);
+	pane->button->e.cp = pane;
+	pane->button->invoke = _UIExpandPaneButtonInvoke;
+	pane->panel = UIPanelCreate(parent, UI_ELEMENT_NON_CLIENT | panelFlags);
+	return pane;
+}
+
 bool _UIMenusClose() {
 	UIWindow *window = ui.windows;
 	bool anyClosed = false;
@@ -4086,7 +4162,7 @@ int _UIWindowMessage(UIElement *element, UIMessage message, int di, void *dp) {
 LRESULT CALLBACK _UIWindowProcedure(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam) {
 	UIWindow *window = (UIWindow *) GetWindowLongPtr(hwnd, GWLP_USERDATA);
 
-	if (!window) {
+	if (!window || ui.assertionFailure) {
 		return DefWindowProc(hwnd, message, wParam, lParam);
 	}
 
