@@ -121,6 +121,7 @@ typedef struct UITheme {
 #define UI_SIZE_MDI_CHILD_CORNER (12)
 #define UI_SIZE_MDI_CHILD_MINIMUM_WIDTH (100)
 #define UI_SIZE_MDI_CHILD_MINIMUM_HEIGHT (50)
+#define UI_SIZE_MDI_CASCADE (30)
 
 #define UI_UPDATE_HOVERED (1)
 #define UI_UPDATE_PRESSED (2)
@@ -223,11 +224,15 @@ typedef struct UIRectangle {
 #define UI_CURSOR_FLIPPED_ARROW (4)
 #define UI_CURSOR_CROSS_HAIR (5)
 #define UI_CURSOR_HAND (6)
-#define UI_CURSOR_RESIZE_V (7)
-#define UI_CURSOR_RESIZE_H (8)
-#define UI_CURSOR_RESIZE_NESW (9)
-#define UI_CURSOR_RESIZE_NWSE (10)
-#define UI_CURSOR_COUNT (11)
+#define UI_CURSOR_RESIZE_UP (7)
+#define UI_CURSOR_RESIZE_LEFT (8)
+#define UI_CURSOR_RESIZE_UP_RIGHT (9)
+#define UI_CURSOR_RESIZE_UP_LEFT (10)
+#define UI_CURSOR_RESIZE_DOWN (11)
+#define UI_CURSOR_RESIZE_RIGHT (12)
+#define UI_CURSOR_RESIZE_DOWN_RIGHT (13)
+#define UI_CURSOR_RESIZE_DOWN_LEFT (14)
+#define UI_CURSOR_COUNT (15)
 
 #define UI_ALIGN_LEFT (1)
 #define UI_ALIGN_RIGHT (2)
@@ -323,6 +328,7 @@ typedef struct UIShortcut {
 typedef struct UIWindow {
 #define UI_WINDOW_MENU (1 << 0)
 #define UI_WINDOW_INSPECTOR (1 << 1)
+#define UI_WINDOW_CENTER_IN_OWNER (1 << 2)
 
 	UIElement e;
 
@@ -480,6 +486,7 @@ typedef struct UIMDIClient {
 #define UI_MDI_CLIENT_TRANSPARENT (1 << 0)
 	UIElement e;
 	struct UIMDIChild *active;
+	int cascade;
 } UIMDIClient;
 
 typedef struct UIMDIChild {
@@ -500,6 +507,12 @@ typedef struct UIExpandPane {
 	bool expanded;
 } UIExpandPane;
 
+typedef struct UIImageDisplay {
+	UIElement e;
+	uint32_t *bits;
+	int width, height;
+} UIImageDisplay;
+
 void UIInitialise();
 int UIMessageLoop();
 
@@ -510,6 +523,7 @@ UIButton *UIButtonCreate(UIElement *parent, uint32_t flags, const char *label, p
 UIColorPicker *UIColorPickerCreate(UIElement *parent, uint32_t flags);
 UIExpandPane *UIExpandPaneCreate(UIElement *parent, uint32_t flags, const char *label, ptrdiff_t labelBytes, uint32_t panelFlags);
 UIGauge *UIGaugeCreate(UIElement *parent, uint32_t flags);
+UIImageDisplay *UIImageDisplayCreate(UIElement *parent, uint32_t flags, uint32_t *bits, size_t width, size_t height, size_t stride);
 UIMDIClient *UIMDIClientCreate(UIElement *parent, uint32_t flags);
 UIMDIChild *UIMDIChildCreate(UIElement *parent, uint32_t flags, UIRectangle initialBounds, const char *title, ptrdiff_t titleBytes);
 UIPanel *UIPanelCreate(UIElement *parent, uint32_t flags);
@@ -2902,6 +2916,20 @@ int _UIMDIChildMessage(UIElement *element, UIMessage message, int di, void *dp) 
 		UIDrawBorder(painter, element->bounds, ui.theme.border, UI_RECT_1((int) element->window->scale));
 		UIDrawBorder(painter, UIRectangleAdd(content, UI_RECT_1I(-1)), ui.theme.border, UI_RECT_1((int) element->window->scale));
 		UIDrawString(painter, title, mdiChild->title, mdiChild->titleBytes, ui.theme.text, UI_ALIGN_LEFT, NULL);
+	} else if (message == UI_MSG_GET_WIDTH) {
+		UIElement *child = element->children;
+		while (child && child->next) child = child->next;
+		int width = 2 * UI_SIZE_MDI_CHILD_BORDER;
+		width += (child ? UIElementMessage(child, message, di ? (di - UI_SIZE_MDI_CHILD_TITLE + UI_SIZE_MDI_CHILD_BORDER) : 0, dp) : 0);
+		if (width < UI_SIZE_MDI_CHILD_MINIMUM_WIDTH) width = UI_SIZE_MDI_CHILD_MINIMUM_WIDTH;
+		return width;
+	} else if (message == UI_MSG_GET_HEIGHT) {
+		UIElement *child = element->children;
+		while (child && child->next) child = child->next;
+		int height = UI_SIZE_MDI_CHILD_TITLE + UI_SIZE_MDI_CHILD_BORDER;
+		height += (child ? UIElementMessage(child, message, di ? (di - 2 * UI_SIZE_MDI_CHILD_BORDER) : 0, dp) : 0);
+		if (height < UI_SIZE_MDI_CHILD_MINIMUM_HEIGHT) height = UI_SIZE_MDI_CHILD_MINIMUM_HEIGHT;
+		return height;
 	} else if (message == UI_MSG_LAYOUT) {
 		UI_MDI_CHILD_CALCULATE_LAYOUT();
 
@@ -2919,23 +2947,31 @@ int _UIMDIChildMessage(UIElement *element, UIMessage message, int di, void *dp) 
 		}
 	} else if (message == UI_MSG_GET_CURSOR) {
 		int hitTest = _UIMDIChildHitTest(mdiChild, element->window->cursorX, element->window->cursorY);
-		if (hitTest == 0b1000 || hitTest == 0b0100) return UI_CURSOR_RESIZE_H;
-		if (hitTest == 0b0010 || hitTest == 0b0001) return UI_CURSOR_RESIZE_V;
-		if (hitTest == 0b0110 || hitTest == 0b1001) return UI_CURSOR_RESIZE_NESW;
-		if (hitTest == 0b1010 || hitTest == 0b0101) return UI_CURSOR_RESIZE_NWSE;
+		if (hitTest == 0b1000) return UI_CURSOR_RESIZE_LEFT;
+		if (hitTest == 0b0010) return UI_CURSOR_RESIZE_UP;
+		if (hitTest == 0b0110) return UI_CURSOR_RESIZE_UP_RIGHT;
+		if (hitTest == 0b1010) return UI_CURSOR_RESIZE_UP_LEFT;
+		if (hitTest == 0b0100) return UI_CURSOR_RESIZE_RIGHT;
+		if (hitTest == 0b0001) return UI_CURSOR_RESIZE_DOWN;
+		if (hitTest == 0b1001) return UI_CURSOR_RESIZE_DOWN_LEFT;
+		if (hitTest == 0b0101) return UI_CURSOR_RESIZE_DOWN_RIGHT;
 		return UI_CURSOR_ARROW;
 	} else if (message == UI_MSG_LEFT_DOWN) {
 		mdiChild->dragHitTest = _UIMDIChildHitTest(mdiChild, element->window->cursorX, element->window->cursorY);
-		mdiChild->dragOffset = UIRectangleAdd(mdiChild->bounds, UI_RECT_2(-element->window->cursorX, -element->window->cursorY));
+		mdiChild->dragOffset = UIRectangleAdd(element->bounds, UI_RECT_2(-element->window->cursorX, -element->window->cursorY));
+	} else if (message == UI_MSG_LEFT_UP) {
+		if (mdiChild->bounds.l < 0) mdiChild->bounds.r -= mdiChild->bounds.l, mdiChild->bounds.l = 0;
+		if (mdiChild->bounds.t < 0) mdiChild->bounds.b -= mdiChild->bounds.t, mdiChild->bounds.t = 0;
+		UIElementRefresh(element->parent);
 	} else if (message == UI_MSG_MOUSE_DRAG) {
 		if (mdiChild->dragHitTest > 0) {
-#define _UI_MDI_CHILD_MOVE_EDGE(bit, edge, cursor, size, opposite, negate, minimum) \
-	if (mdiChild->dragHitTest & bit) mdiChild->bounds.edge = mdiChild->dragOffset.edge + element->window->cursor; \
+#define _UI_MDI_CHILD_MOVE_EDGE(bit, edge, cursor, size, opposite, negate, minimum, offset) \
+	if (mdiChild->dragHitTest & bit) mdiChild->bounds.edge = mdiChild->dragOffset.edge + element->window->cursor - element->parent->bounds.offset; \
 	if ((mdiChild->dragHitTest & bit) && size(mdiChild->bounds) < minimum) mdiChild->bounds.edge = mdiChild->bounds.opposite negate minimum;
-			_UI_MDI_CHILD_MOVE_EDGE(0b1000, l, cursorX, UI_RECT_WIDTH, r, -, UI_SIZE_MDI_CHILD_MINIMUM_WIDTH);
-			_UI_MDI_CHILD_MOVE_EDGE(0b0100, r, cursorX, UI_RECT_WIDTH, l, +, UI_SIZE_MDI_CHILD_MINIMUM_WIDTH);
-			_UI_MDI_CHILD_MOVE_EDGE(0b0010, t, cursorY, UI_RECT_HEIGHT, b, -, UI_SIZE_MDI_CHILD_MINIMUM_HEIGHT);
-			_UI_MDI_CHILD_MOVE_EDGE(0b0001, b, cursorY, UI_RECT_HEIGHT, t, +, UI_SIZE_MDI_CHILD_MINIMUM_HEIGHT);
+			_UI_MDI_CHILD_MOVE_EDGE(0b1000, l, cursorX, UI_RECT_WIDTH, r, -, UI_SIZE_MDI_CHILD_MINIMUM_WIDTH, l);
+			_UI_MDI_CHILD_MOVE_EDGE(0b0100, r, cursorX, UI_RECT_WIDTH, l, +, UI_SIZE_MDI_CHILD_MINIMUM_WIDTH, l);
+			_UI_MDI_CHILD_MOVE_EDGE(0b0010, t, cursorY, UI_RECT_HEIGHT, b, -, UI_SIZE_MDI_CHILD_MINIMUM_HEIGHT, t);
+			_UI_MDI_CHILD_MOVE_EDGE(0b0001, b, cursorY, UI_RECT_HEIGHT, t, +, UI_SIZE_MDI_CHILD_MINIMUM_HEIGHT, t);
 			UIElementRefresh(element->parent);
 		}
 	} else if (message == UI_MSG_DESTROY) {
@@ -2960,8 +2996,19 @@ int _UIMDIClientMessage(UIElement *element, UIMessage message, int di, void *dp)
 
 		while (child) {
 			UI_ASSERT(child->messageClass == _UIMDIChildMessage);
+
 			UIMDIChild *mdiChild = (UIMDIChild *) child;
-			UIElementMove(child, mdiChild->bounds, false);
+
+			if (UIRectangleEquals(mdiChild->bounds, UI_RECT_1(0))) {
+				int width = UIElementMessage(&mdiChild->e, UI_MSG_GET_WIDTH, 0, 0);
+				int height = UIElementMessage(&mdiChild->e, UI_MSG_GET_HEIGHT, width, 0);
+				if (client->cascade + width > element->bounds.r || client->cascade + height > element->bounds.b) client->cascade = 0;
+				mdiChild->bounds = UI_RECT_4(client->cascade, client->cascade + width, client->cascade, client->cascade + height);
+				client->cascade += UI_SIZE_MDI_CASCADE * element->window->scale;
+			}
+
+			UIRectangle bounds = UIRectangleAdd(mdiChild->bounds, UI_RECT_2(element->bounds.l, element->bounds.t));
+			UIElementMove(child, bounds, false);
 			child = child->next;
 		}
 	} else if (message == UI_MSG_FIND_BY_POINT) {
@@ -2969,7 +3016,7 @@ int _UIMDIClientMessage(UIElement *element, UIMessage message, int di, void *dp)
 		UIMDIChild *child = client->active;
 
 		while (child) {
-			if (UIRectangleContains(child->bounds, m->x, m->y)) {
+			if (UIRectangleContains(child->e.bounds, m->x, m->y)) {
 				m->result = UIElementFindByPoint(&child->e, m->x, m->y);
 				return 1;
 			}
@@ -3080,6 +3127,65 @@ UIExpandPane *UIExpandPaneCreate(UIElement *parent, uint32_t flags, const char *
 	pane->button->invoke = _UIExpandPaneButtonInvoke;
 	pane->panel = UIPanelCreate(parent, UI_ELEMENT_NON_CLIENT | panelFlags);
 	return pane;
+}
+
+int _UIImageDisplayMessage(UIElement *element, UIMessage message, int di, void *dp) {
+	UIImageDisplay *display = (UIImageDisplay *) element;
+	
+	if (message == UI_MSG_GET_HEIGHT) {
+		return display->height;
+	} else if (message == UI_MSG_GET_WIDTH) {
+		return display->width;
+	} else if (message == UI_MSG_DESTROY) {
+		UI_FREE(display->bits);
+	} else if (message == UI_MSG_PAINT) {
+		UIPainter *painter = (UIPainter *) dp;
+		UIRectangle image = UI_RECT_4(display->e.bounds.l, display->e.bounds.l + display->width, display->e.bounds.t, display->e.bounds.t + display->height);
+		UIRectangle extra1 = UI_RECT_4(display->e.bounds.l + display->width, display->e.bounds.r, display->e.bounds.t, display->e.bounds.b);
+		UIRectangle extra2 = UI_RECT_4(display->e.bounds.l, display->e.bounds.l + display->width, display->e.bounds.t + display->height, display->e.bounds.b);
+		UIRectangle bounds = UIRectangleIntersection(painter->clip, UIRectangleIntersection(display->e.bounds, image));
+
+		UIDrawBlock(painter, extra1, ui.theme.panel1);
+		UIDrawBlock(painter, extra2, ui.theme.panel1);
+
+		if (UI_RECT_VALID(bounds)) {
+			uint32_t *lineStart = (uint32_t *) painter->bits + bounds.t * painter->width + bounds.l;
+			uint32_t *sourceLineStart = display->bits + (bounds.l - display->e.bounds.l) + display->width * (bounds.t - display->e.bounds.t);
+
+			for (int i = 0; i < bounds.b - bounds.t; i++, lineStart += painter->width, sourceLineStart += display->width) {
+				uint32_t *destination = lineStart;
+				uint32_t *source = sourceLineStart;
+				int j = bounds.r - bounds.l;
+
+				do {
+					*destination = *source;
+					destination++;
+					source++;
+				} while (--j);
+			}
+		}
+	}
+
+	return 0;
+}
+
+UIImageDisplay *UIImageDisplayCreate(UIElement *parent, uint32_t flags, uint32_t *bits, size_t width, size_t height, size_t stride) {
+	UIImageDisplay *display = (UIImageDisplay *) UIElementCreate(sizeof(UIImageDisplay), parent, flags, _UIImageDisplayMessage, "ImageDisplay");
+
+	display->bits = (uint32_t *) UI_MALLOC(width * height * 4);
+	display->width = width;
+	display->height = height;
+
+	uint32_t *destination = display->bits;
+	uint32_t *source = bits;
+
+	for (uintptr_t row = 0; row < height; row++, source += stride / 4) {
+		for (uintptr_t i = 0; i < width; i++) {
+			*destination++ = source[i];
+		}
+	}
+
+	return display;
 }
 
 bool _UIMenusClose() {
@@ -3829,6 +3935,12 @@ UIWindow *UIWindowCreate(UIWindow *owner, uint32_t flags, const char *cTitle, in
 		XMapRaised(ui.display, window->window);
 	}
 
+	if (flags & UI_WINDOW_CENTER_IN_OWNER) {
+		int x = 0, y = 0;
+		_UIWindowGetScreenPosition(owner, &x, &y);
+		XMoveResizeWindow(ui.display, window->window, x + owner->width / 2 - width / 2, y + owner->height / 2 - height / 2, width, height);
+	}
+
 	XSetWMProtocols(ui.display, window->window, &ui.windowClosedID, 1);
 	window->image = XCreateImage(ui.display, ui.visual, 24, ZPixmap, 0, NULL, 10, 10, 32, 0);
 
@@ -3857,6 +3969,14 @@ void UIInitialise() {
 	ui.cursors[UI_CURSOR_FLIPPED_ARROW] = XCreateFontCursor(ui.display, XC_right_ptr);
 	ui.cursors[UI_CURSOR_CROSS_HAIR] = XCreateFontCursor(ui.display, XC_crosshair);
 	ui.cursors[UI_CURSOR_HAND] = XCreateFontCursor(ui.display, XC_hand1);
+	ui.cursors[UI_CURSOR_RESIZE_UP] = XCreateFontCursor(ui.display, XC_top_side);
+	ui.cursors[UI_CURSOR_RESIZE_LEFT] = XCreateFontCursor(ui.display, XC_left_side);
+	ui.cursors[UI_CURSOR_RESIZE_UP_RIGHT] = XCreateFontCursor(ui.display, XC_top_right_corner);
+	ui.cursors[UI_CURSOR_RESIZE_UP_LEFT] = XCreateFontCursor(ui.display, XC_top_left_corner);
+	ui.cursors[UI_CURSOR_RESIZE_DOWN] = XCreateFontCursor(ui.display, XC_bottom_side);
+	ui.cursors[UI_CURSOR_RESIZE_RIGHT] = XCreateFontCursor(ui.display, XC_right_side);
+	ui.cursors[UI_CURSOR_RESIZE_DOWN_LEFT] = XCreateFontCursor(ui.display, XC_bottom_left_corner);
+	ui.cursors[UI_CURSOR_RESIZE_DOWN_RIGHT] = XCreateFontCursor(ui.display, XC_bottom_right_corner);
 
 	XSetLocaleModifiers("");
 
@@ -4291,10 +4411,14 @@ void UIInitialise() {
 	ui.cursors[UI_CURSOR_FLIPPED_ARROW] = LoadCursor(NULL, IDC_ARROW);
 	ui.cursors[UI_CURSOR_CROSS_HAIR] = LoadCursor(NULL, IDC_CROSS);
 	ui.cursors[UI_CURSOR_HAND] = LoadCursor(NULL, IDC_HAND);
-	ui.cursors[UI_CURSOR_RESIZE_V] = LoadCursor(NULL, IDC_SIZENS);
-	ui.cursors[UI_CURSOR_RESIZE_H] = LoadCursor(NULL, IDC_SIZEWE);
-	ui.cursors[UI_CURSOR_RESIZE_NESW] = LoadCursor(NULL, IDC_SIZENESW);
-	ui.cursors[UI_CURSOR_RESIZE_NWSE] = LoadCursor(NULL, IDC_SIZENWSE);
+	ui.cursors[UI_CURSOR_RESIZE_UP] = LoadCursor(NULL, IDC_SIZENS);
+	ui.cursors[UI_CURSOR_RESIZE_LEFT] = LoadCursor(NULL, IDC_SIZEWE);
+	ui.cursors[UI_CURSOR_RESIZE_UP_RIGHT] = LoadCursor(NULL, IDC_SIZENESW);
+	ui.cursors[UI_CURSOR_RESIZE_UP_LEFT] = LoadCursor(NULL, IDC_SIZENWSE);
+	ui.cursors[UI_CURSOR_RESIZE_DOWN] = LoadCursor(NULL, IDC_SIZENS);
+	ui.cursors[UI_CURSOR_RESIZE_RIGHT] = LoadCursor(NULL, IDC_SIZEWE);
+	ui.cursors[UI_CURSOR_RESIZE_DOWN_LEFT] = LoadCursor(NULL, IDC_SIZENESW);
+	ui.cursors[UI_CURSOR_RESIZE_DOWN_RIGHT] = LoadCursor(NULL, IDC_SIZENWSE);
 
 	ui.heap = GetProcessHeap();
 
