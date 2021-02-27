@@ -1,4 +1,3 @@
-// TODO UIMenu features - columns.
 // TODO UITextbox features - mouse input, multi-line, clipboard, undo, IME support, number dragging.
 // TODO New elements - list view, dialogs, menu bar, drawing canvas.
 // TODO Keyboard navigation - menus, dialogs, tables.
@@ -468,6 +467,7 @@ typedef struct UIMenu {
 #define UI_MENU_PLACE_ABOVE (1 << 0)
 	UIElement e;
 	int pointX, pointY;
+	UIScrollBar *vScroll;
 } UIMenu;
 
 typedef struct UISlider {
@@ -3213,23 +3213,31 @@ int _UIMenuItemMessage(UIElement *element, UIMessage message, int di, void *dp) 
 }
 
 int _UIMenuMessage(UIElement *element, UIMessage message, int di, void *dp) {
+	UIMenu *menu = (UIMenu *) element;
+
 	if (message == UI_MSG_GET_WIDTH) {
 		UIElement *child = element->children;
 		int width = 0;
 
 		while (child) {
-			int w = UIElementMessage(child, UI_MSG_GET_WIDTH, 0, 0);
-			if (w > width) width = w;
+			if (~child->flags & UI_ELEMENT_NON_CLIENT) {
+				int w = UIElementMessage(child, UI_MSG_GET_WIDTH, 0, 0);
+				if (w > width) width = w;
+			}
+
 			child = child->next;
 		}
 
-		return width + 4;
+		return width + 4 + UI_SIZE_SCROLL_BAR;
 	} else if (message == UI_MSG_GET_HEIGHT) {
 		UIElement *child = element->children;
 		int height = 0;
 
 		while (child) {
-			height += UIElementMessage(child, UI_MSG_GET_HEIGHT, 0, 0);
+			if (~child->flags & UI_ELEMENT_NON_CLIENT) {
+				height += UIElementMessage(child, UI_MSG_GET_HEIGHT, 0, 0);
+			}
+
 			child = child->next;
 		}
 
@@ -3238,14 +3246,26 @@ int _UIMenuMessage(UIElement *element, UIMessage message, int di, void *dp) {
 		UIDrawBlock((UIPainter *) dp, element->bounds, ui.theme.border);
 	} else if (message == UI_MSG_LAYOUT) {
 		UIElement *child = element->children;
-		int position = element->bounds.t + 2;
+		int position = element->bounds.t + 2 - menu->vScroll->position;
+		int totalHeight = 0;
 
 		while (child) {
-			int height = UIElementMessage(child, UI_MSG_GET_HEIGHT, 0, 0);
-			UIElementMove(child, UI_RECT_4(element->bounds.l + 2, element->bounds.r - 2, position, position + height), false);
-			position += height;
+			if (~child->flags & UI_ELEMENT_NON_CLIENT) {
+				int height = UIElementMessage(child, UI_MSG_GET_HEIGHT, 0, 0);
+				UIElementMove(child, UI_RECT_4(element->bounds.l + 2, element->bounds.r - UI_SIZE_SCROLL_BAR - 2, 
+							position, position + height), false);
+				position += height;
+				totalHeight += height;
+			}
+
 			child = child->next;
 		}
+
+		UIRectangle scrollBarBounds = element->bounds;
+		scrollBarBounds.l = scrollBarBounds.r - UI_SIZE_SCROLL_BAR * element->window->scale;
+		menu->vScroll->maximum = totalHeight;
+		menu->vScroll->page = UI_RECT_HEIGHT(element->bounds);
+		UIElementMove(&menu->vScroll->e, scrollBarBounds, true);
 	} else if (message == UI_MSG_KEY_TYPED) {
 		UIKeyTyped *m = (UIKeyTyped *) dp;
 
@@ -3253,6 +3273,10 @@ int _UIMenuMessage(UIElement *element, UIMessage message, int di, void *dp) {
 			_UIMenusClose();
 			return 1;
 		}
+	} else if (message == UI_MSG_MOUSE_WHEEL) {
+		return UIElementMessage(&menu->vScroll->e, message, di, dp);
+	} else if (message == UI_MSG_SCROLLED) {
+		UIElementRefresh(element);
 	}
 
 	return 0;
@@ -3278,6 +3302,8 @@ UIMenu *UIMenuCreate(UIElement *parent, uint32_t flags) {
 	UIWindow *window = UIWindowCreate(parent->window, UI_WINDOW_MENU, 0, 0, 0);
 	
 	UIMenu *menu = (UIMenu *) UIElementCreate(sizeof(UIMenu), &window->e, flags, _UIMenuMessage, "Menu");
+
+	menu->vScroll = UIScrollBarCreate(&menu->e, UI_ELEMENT_NON_CLIENT);
 
 	if (parent->parent) {
 		UIRectangle screenBounds = UIElementScreenBounds(parent);
@@ -4026,6 +4052,25 @@ void _UIWindowGetScreenPosition(UIWindow *window, int *_x, int *_y) {
 void UIMenuShow(UIMenu *menu) {
 	int width, height;
 	_UIMenuPrepare(menu, &width, &height);
+
+	for (int i = 0; i < ScreenCount(ui.display); i++) {
+		Screen *screen = ScreenOfDisplay(ui.display, i);
+
+		int x, y;
+		Window child;
+		XTranslateCoordinates(ui.display, screen->root, DefaultRootWindow(ui.display), 0, 0, &x, &y, &child);
+
+		if (menu->pointX >= x && menu->pointX < x + screen->width 
+				&& menu->pointY >= y && menu->pointY < y + screen->height) {
+			if (menu->pointX + width > x + screen->width) menu->pointX = x + screen->width - width;
+			if (menu->pointY + height > y + screen->height) menu->pointY = y + screen->height - height;
+			if (menu->pointX < x) menu->pointX = x;
+			if (menu->pointY < y) menu->pointY = y;
+			if (menu->pointX + width > x + screen->width) width = x + screen->width - menu->pointX;
+			if (menu->pointY + height > y + screen->height) height = y + screen->height - menu->pointY;
+			break;
+		}
+	}
 
 	struct Hints {
 		int flags;
