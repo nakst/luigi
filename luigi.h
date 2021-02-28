@@ -1,5 +1,5 @@
 // TODO UITextbox features - mouse input, multi-line, clipboard, undo, IME support, number dragging.
-// TODO New elements - list view, dialogs, menu bar, drawing canvas.
+// TODO New elements - list view, dialogs, menu bar.
 // TODO Keyboard navigation - menus, dialogs, tables.
 // TODO Easier to use fonts; GDI font support.
 
@@ -561,6 +561,7 @@ void UICodeInsertContent(UICode *code, const char *content, ptrdiff_t byteCount,
 
 void UIDrawBlock(UIPainter *painter, UIRectangle rectangle, uint32_t color);
 void UIDrawInvert(UIPainter *painter, UIRectangle rectangle);
+void UIDrawLine(UIPainter *painter, int x0, int y0, int x1, int y1, uint32_t color);
 void UIDrawGlyph(UIPainter *painter, int x, int y, int c, uint32_t color);
 void UIDrawRectangle(UIPainter *painter, UIRectangle r, uint32_t mainColor, uint32_t borderColor, UIRectangle borderSize);
 void UIDrawBorder(UIPainter *painter, UIRectangle r, uint32_t borderColor, UIRectangle borderSize);
@@ -1072,6 +1073,50 @@ void UIDrawBlock(UIPainter *painter, UIRectangle rectangle, uint32_t color) {
 #ifdef UI_DEBUG
 	painter->fillCount += UI_RECT_WIDTH(rectangle) * UI_RECT_HEIGHT(rectangle);
 #endif
+}
+
+void UIDrawLine(UIPainter *painter, int x0, int y0, int x1, int y1, uint32_t color) {
+	// Clip the line to the painter's clip rectangle.
+
+	if (x0 > x1) { int t = x0; x0 = x1; x1 = t; }
+	if (y0 > y1) { int t = y0; y0 = y1; y1 = t; }
+	UIRectangle bounds = UIRectangleIntersection(painter->clip, UI_RECT_4(x0, x1, y0, y1));
+	int dx = x1 - x0, dy = y1 - y0;
+	int points[8], count = 0;
+	int iLY = dx ? (y0 + (bounds.l - x0) * dy / dx) : 0x7FFFFFFF;
+	int iRY = dx ? (y0 + (bounds.r - x0) * dy / dx) : 0x7FFFFFFF;
+	int iTX = dy ? (x0 + (bounds.t - y0) * dx / dy) : 0x7FFFFFFF;
+	int iBX = dy ? (x0 + (bounds.b - y0) * dx / dy) : 0x7FFFFFFF;
+	if (iLY >= bounds.t && iLY <= bounds.b) points[count + 0] = bounds.l, points[count + 1] = iLY, count += 2;
+	if (iRY >= bounds.t && iRY <= bounds.b) points[count + 0] = bounds.r, points[count + 1] = iRY, count += 2;
+	if (iTX >= bounds.l && iTX <= bounds.r) points[count + 1] = bounds.t, points[count + 0] = iTX, count += 2;
+	if (iBX >= bounds.l && iBX <= bounds.r) points[count + 1] = bounds.b, points[count + 0] = iBX, count += 2;
+	if (count < 4) return;
+	x0 = points[0], y0 = points[1], x1 = points[2], y1 = points[3];
+	if (x0 == x1 && y0 == y1 && count > 4) x1 = points[4], y1 = points[5];
+	dx = x1 - x0, dy = y1 - y0;
+
+	// Draw the line using Bresenham's line algorithm.
+
+	uint32_t *bits = painter->bits + y0 * painter->width + x0;
+
+	if (dy * dy < dx * dx) {
+		int m = 2 * dy - dx;
+
+		for (int i = 0; i < dx; i++, bits++) {
+			*bits = color;
+			if (m > 0) bits += painter->width, m -= 2 * dx;
+			m += 2 * dy;
+		}
+	} else {
+		int m = 2 * dx - dy;
+
+		for (int i = 0; i < dy; i++, bits += painter->width) {
+			*bits = color;
+			if (m > 0) bits++, m -= 2 * dy;
+			m += 2 * dx;
+		}
+	}
 }
 
 void UIDrawInvert(UIPainter *painter, UIRectangle rectangle) {
