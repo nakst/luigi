@@ -2,6 +2,8 @@
 // TODO New elements - list view, dialogs, menu bar.
 // TODO Keyboard navigation - menus, dialogs, tables.
 // TODO Easier to use fonts; GDI font support.
+// TODO Formalize the notion of size-stability? See _UIExpandPaneButtonInvoke.
+// TODO UI_ELEMENT_IMGUI - when UIElementRefresh is called, UIElementDestroyDescendents is called and UI_MSG_POPULATE is sent.
 
 #include <stdint.h>
 #include <stddef.h>
@@ -1469,13 +1471,13 @@ int _UIPanelLayout(UIPanel *panel, UIRectangle bounds, bool measure) {
 		if (horizontal) {
 			if (child->flags & UI_ELEMENT_H_FILL) {
 				fill++;
-			} else {
+			} else if (available > 0) {
 				available -= UIElementMessage(child, UI_MSG_GET_WIDTH, vSpace, 0);
 			}
 		} else {
 			if (child->flags & UI_ELEMENT_V_FILL) {
 				fill++;
-			} else {
+			} else if (available > 0) {
 				available -= UIElementMessage(child, UI_MSG_GET_HEIGHT, hSpace, 0);
 			}
 		}
@@ -3152,8 +3154,6 @@ void _UIExpandPaneButtonInvoke(void *cp) {
 
 	while (ancestor) {
 		UIElementRefresh(ancestor);
-
-		// TODO Formalize the notion of height-stability.
 
 		if ((ancestor->messageClass == _UIPanelMessage && (ancestor->flags & UI_PANEL_SCROLL)) 
 				|| (ancestor->messageClass == _UIMDIChildMessage)
