@@ -3490,7 +3490,7 @@ void _UIUpdate() {
 				painter.bits = window->bits;
 				painter.width = window->width;
 				painter.height = window->height;
-				painter.clip = UI_RECT_2S(window->width, window->height);
+				painter.clip = UIRectangleIntersection(UI_RECT_2S(window->width, window->height), window->updateRegion);
 				_UIElementPaint(&window->e, &painter, true);
 				_UIWindowEndPaint(window, &painter);
 				window->updateRegion = UI_RECT_1(0);
