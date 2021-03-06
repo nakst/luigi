@@ -292,7 +292,6 @@ typedef struct UIElement {
 #define UI_ELEMENT_NON_CLIENT (1 << 21) // Don't destroy in UIElementDestroyDescendents, like scroll bars.
 #define UI_ELEMENT_DISABLED (1 << 22) // Don't receive input events.
 
-#define UI_ELEMENT_REPAINT (1 << 28)
 #define UI_ELEMENT_HIDE (1 << 29)
 #define UI_ELEMENT_DESTROY (1 << 30)
 #define UI_ELEMENT_DESTROY_DESCENDENT (1 << 31)
@@ -304,7 +303,7 @@ typedef struct UIElement {
 	struct UIElement *children;
 	struct UIWindow *window;
 
-	UIRectangle bounds, clip, repaint;
+	UIRectangle bounds, clip;
 	
 	void *cp; // Context pointer (for user).
 
@@ -980,20 +979,10 @@ void UIElementRepaint(UIElement *element, UIRectangle *region) {
 		return;
 	}
 
-	bool changed = false;
-
-	if (element->flags & UI_ELEMENT_REPAINT) {
-		UIRectangle old = element->repaint;
-		element->repaint = UIRectangleBounding(element->repaint, r);
-		changed = !UIRectangleEquals(element->repaint, old);
+	if (UI_RECT_VALID(element->window->updateRegion)) {
+		element->window->updateRegion = UIRectangleBounding(element->window->updateRegion, r);
 	} else {
-		element->flags |= UI_ELEMENT_REPAINT;
-		element->repaint = r;
-		changed = true;
-	}
-
-	if (changed && element->parent) {
-		UIElementRepaint(element->parent, &r);
+		element->window->updateRegion = r;
 	}
 }
 
@@ -3393,37 +3382,6 @@ void _UIElementPaint(UIElement *element, UIPainter *painter, bool forRepaint) {
 		return;
 	}
 
-	if (forRepaint) {
-		// Add to the repaint region the intersection of the parent's repaint region with our clip.
-
-		if (element->parent) {
-			UIRectangle parentRepaint = UIRectangleIntersection(element->parent->repaint, element->clip);
-
-			if (UI_RECT_VALID(parentRepaint)) {
-				if (element->flags & UI_ELEMENT_REPAINT) {
-					element->repaint = UIRectangleBounding(element->repaint, parentRepaint);
-				} else {
-					element->repaint = parentRepaint;
-					element->flags |= UI_ELEMENT_REPAINT;
-				}
-			} 
-		}
-
-		// If we don't need to repaint, don't.
-		
-		if (~element->flags & UI_ELEMENT_REPAINT) {
-			return;
-		}
-
-		// Clip painting to our repaint region.
-
-		painter->clip = UIRectangleIntersection(element->repaint, painter->clip);
-
-		if (!UI_RECT_VALID(painter->clip)) {
-			return;
-		}
-	}
-
 	// Paint the element.
 
 	UIElementMessage(element, UI_MSG_PAINT, 0, painter);
@@ -3437,12 +3395,6 @@ void _UIElementPaint(UIElement *element, UIPainter *painter, bool forRepaint) {
 		painter->clip = previousClip;
 		_UIElementPaint(child, painter, forRepaint);
 		child = child->next;
-	}
-
-	// Clear the repaint flag.
-
-	if (forRepaint) {
-		element->flags &= ~UI_ELEMENT_REPAINT;
 	}
 }
 
@@ -3529,19 +3481,19 @@ void _UIUpdate() {
 		} else {
 			link = &window->next;
 
-			if (window->e.flags & UI_ELEMENT_REPAINT) {
+			if (UI_RECT_VALID(window->updateRegion)) {
 #ifdef __cplusplus
 				UIPainter painter = {};
 #else
 				UIPainter painter = { 0 };
 #endif
-				window->updateRegion = window->e.repaint;
 				painter.bits = window->bits;
 				painter.width = window->width;
 				painter.height = window->height;
 				painter.clip = UI_RECT_2S(window->width, window->height);
 				_UIElementPaint(&window->e, &painter, true);
 				_UIWindowEndPaint(window, &painter);
+				window->updateRegion = UI_RECT_1(0);
 
 #ifdef UI_DEBUG
 				window->lastFullFillCount = (float) painter.fillCount / (UI_RECT_WIDTH(window->updateRegion) * UI_RECT_HEIGHT(window->updateRegion));
@@ -4125,7 +4077,8 @@ void UIMenuShow(UIMenu *menu) {
 		int status;
 	};
 
-	struct Hints hints = { 2 };
+	struct Hints hints = { 0 };
+	hints.flags = 2;
 	Atom property = XInternAtom(ui.display, "_MOTIF_WM_HINTS", true);
 	XChangeProperty(ui.display, menu->e.window->window, property, property, 32, PropModeReplace, (uint8_t *) &hints, 5);
 
