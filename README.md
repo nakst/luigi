@@ -63,6 +63,134 @@ The `UI...Create` functions will set the `messageClass` function pointer, and th
 For example, the `messageClass` function set by `UIButtonCreate` will handle drawing the button when it receives the `UI_MSG_PAINT` message.
 The user will likely want to set `messageUser` so that they can receive the `UI_MSG_CLICKED` message, which indicates that the button has been clicked.
 
+### Basic example
+
+The following source code demonstrates how to create an empty window.
+
+```c
+// Define UI_LINUX instead if you're on Linux.
+#define UI_WINDOWS 
+
+// Put the library implementation in this translation unit.
+#define UI_IMPLEMENTATION 
+#include "luigi.h"
+
+// Use main() instead if you're on Linux.
+int WinMain(HINSTANCE instance, HINSTANCE previousInstance, LPSTR commandLine, int showCommand) {
+	// Initialise the library.
+	UIInitialise(); 
+	
+	// Create a window.
+	UIWindow *window = UIWindowCreate(0, 0, "My First Application", 640, 480);
+	
+	// Process input messages from the operating system.
+	return UIMessageLoop();
+}
+```
+
+Since we haven't added anything to the window, its contents will be uninitialized - so don't worry if you see some random pixels.
+
+![An empty window.](https://cdn.discordapp.com/attachments/462643277321994245/819271894879830046/1.png)
+
+To start adding elements to the window, we first need to add a panel which will be responsible for laying out the other elements in the window.
+
+```c
+UIInitialise(); 
+UIWindow *window = UIWindowCreate(0, 0, "My First Application", 640, 480);
+
+// Create a gray panel, filling the window, with medium spacing.
+// By default, a panel places its children from top to bottom.
+// You can additionally specify the UI_PANEL_HORIZONTAL flag if you want a left-to-right layout.
+// If you want to customize the spacing between child element, modify panel->gap.
+// If you want to customize the border between the panel and its children, modify panel->border.
+UIPanel *panel = UIPanelCreate(&window->e, UI_PANEL_GRAY | UI_PANEL_MEDIUM_SPACING);
+
+return UIMessageLoop();
+```
+
+![A empty window with a dark gray background.](https://cdn.discordapp.com/attachments/462643277321994245/819271897610059877/2.png)
+
+We can now add some elements to the panel.
+
+```c
+// Global variables:
+UIButton *button;
+UIColorPicker *colorPicker;
+UIGauge *gauge;
+UISlider *slider;
+UISpacer *spacer;
+UILabel *label;
+UITextbox *textbox;
+
+...
+
+UIPanel *panel = UIPanelCreate(&window->e, UI_PANEL_GRAY | UI_PANEL_MEDIUM_SPACING);
+button = UIButtonCreate(&panel->e, 0, "Push", -1);
+colorPicker = UIColorPickerCreate(&panel->e, 0);
+gauge = UIGaugeCreate(&panel->e, 0);
+slider = UISliderCreate(&panel->e, 0);
+spacer = UISpacerCreate(&panel->e, 0, 0 /* width */, 20 /* height */);
+label = UILabelCreate(&panel->e, 0, "Label", -1);
+textbox = UITextboxCreate(&panel->e, 0);
+```
+
+![A window showing the added elements, arranged from top to bottom and horizontally centered.](https://cdn.discordapp.com/attachments/462643277321994245/819271890937446450/3.png)
+
+Let's add some interactivity to the interface. Set the message callbacks for the button, slider and textbox. 
+We can process input messages in these callbacks, and respond to them however we want.
+
+```c
+button->e.messageUser = ButtonMessage;
+slider->e.messageUser = SliderMessage;
+textbox->e.messageUser = TextboxMessage;
+```
+
+In the button's callback, we'll change the color in the color picker to white when the button is clicked.
+
+```c
+int ButtonMessage(UIElement *element, UIMessage message, int di, void *dp) {
+	if (message == UI_MSG_CLICKED) {
+		colorPicker->saturation = 0;
+		colorPicker->value = 1;
+		UIElementRefresh(&colorPicker->e); // Update and repaint the color picker.
+	}
+	
+	return 0;
+}
+```
+
+In the slider's callback, we'll make the gauge match the slider's position.
+
+```c
+int SliderMessage(UIElement *element, UIMessage message, int di, void *dp) {
+	if (message == UI_MSG_VALUE_CHANGED) {
+		gauge->position = slider->position;
+		UIElementRefresh(&gauge->e);
+	}
+	
+	return 0;
+}
+```
+
+Finally, in the textbox's callback, we'll make the label match the textbox's contents.
+
+```c
+int TextboxMessage(UIElement *element, UIMessage message, int di, void *dp) {
+	if (message == UI_MSG_VALUE_CHANGED) {
+		UILabelSetContent(label, textbox->string, textbox->bytes);
+		UIElementRefresh(&label->e);
+		
+		// The label's size might have changed, 
+		// so we need to refresh the parent panel, to update its layout.
+		UIElementRefresh(label->e.parent); 
+	}
+	
+	return 0;
+}
+```
+
+![A window showing the elements having been interacted with. The label and textbox both show the text "hello, world!", and the gauge and slider have the same position. A shade of green has been selected in the color picker.](https://cdn.discordapp.com/attachments/462643277321994245/819271892748861461/4.png)
+
 ### UIRectangle
 
 This contains 4 integers, `l`, `r`, `t` and `b` which represent the left, right, top and bottom edges of a rectangle. 
@@ -90,24 +218,25 @@ struct UIElement {
 };
 ```
 
-`flags` contains a bitset of flags for the element. The first 32-bits are specific to each type of element. The upper 32-bits are common to all elements. 
-Bits 32-47 are intended to specifying options, and bits 48-63 are for storing the element's state.
+`flags` contains a bitset of flags for the element. The first 16-bits are specific to each type of element. The upper 16-bits are common to all elements. 
 
-The following flags are available:
+Here are the common flags are available:
 
 * `UI_ELEMENT_V_FILL` is a hint to the parent element that this element should take up all available vertical space.
 * `UI_ELEMENT_H_FILL` is a hint to the parent element that this element should take up all available horizontal space.
 * `UI_ELEMENT_REPAINT` marks the element for repainting. Do not set directly; see `UIElementRepaint`.
 * `UI_ELEMENT_DESTROY` marks the element to be destroyed. Do not set directly; see `UIElementDestroy`.
+* `UI_ELEMENT_DISABLED` marks the element as disabled. It will not receive input events.
 * `UI_ELEMENT_HIDE` marks the element as hidden. It will not receive input events, be drawn, or take up space in the parent's layout.
+* `UI_ELEMENT_TAB_STOP` marks the element as a tab stop. The user may focus it using the tab key.
+* `UI_ELEMENT_PARENT_PUSH` automatically adds the element to the parent stack. See `UIParentPush`.
+* `UI_ELEMENT_NON_CLIENT` indicates the element behaves less like a child of its parent, but rather is integral to the existence of its parent. For example, scrollbars in a table will be marked as non-client. This flag has several effects: UIElementDestroyDescendents will not destroy non-client elements; the `UI_MSG_CLIENT_PARENT` message will not be sent to the parent during its creation; and panels will not include it in their layout.
 
 `parent` contains a pointer to the element's parent. `next` contains a pointer to the element's sibling. 
 `children` contains a pointer to the element's first child (children are linked by the `next` pointer).
 `window` contains a pointer to the window that contains the element.
 
-`bounds` contains the element's bounds, expressed in pixels relative to the top-left corner of the containing window. Do not set directly; see `UIElementMove`.
-`clip` contains the element's clip region, expressed in pixels relative to the top-left corner of the containing window. Do not set directly; see `UIElementMove`.
-`repaint` contains the element's repaint region, expressed in pixels relative to the top-left corner of the containing window. Do not set directly; see `UIElementRepaint`.
+`bounds` contains the element's bounds, expressed in pixels relative to the top-left corner of the containing window. `clip` gives the clip region in a similar fashion. Do not set either of these directly; instead, use `UIElementMove`.
 
 `cp` is a context pointer available for the user.
 
@@ -118,7 +247,7 @@ If `messageUser` returns a non-zero value, then `messageClass` will not receive 
 If `messageUser` is `NULL`, then `messageClass` will always receive the message.
 Do not call these directly; see `UIElementMessage`.
 
-### Functions
+### All functions
 
 ```c
 // General.
@@ -179,6 +308,7 @@ void UIWindowPostMessage(UIWindow *window, UIMessage message, void *dp); // Thre
 // Graphics.
 void UIDrawBlock(UIPainter *painter, UIRectangle rectangle, uint32_t color);
 void UIDrawInvert(UIPainter *painter, UIRectangle rectangle);
+void UIDrawLine(UIPainter *painter, int x0, int y0, int x1, int y1, uint32_t color);
 void UIDrawGlyph(UIPainter *painter, int x, int y, int c, uint32_t color);
 void UIDrawRectangle(UIPainter *painter, UIRectangle r, uint32_t mainColor, uint32_t borderColor, UIRectangle borderSize);
 void UIDrawBorder(UIPainter *painter, UIRectangle r, uint32_t borderColor, UIRectangle borderSize);
@@ -198,7 +328,7 @@ bool        UIRectangleContains(UIRectangle a, int x, int y);
 char       *UIStringCopy(const char *in, ptrdiff_t inBytes);
 ```
 
-### Messages
+### All messages
 
 ```c
 // General events.
@@ -206,6 +336,7 @@ UI_MSG_PAINT, // dp = pointer to UIPainter
 UI_MSG_DESTROY,
 UI_MSG_UPDATE, // di = UI_UPDATE_... constant
 UI_MSG_ANIMATE,
+UI_MSG_CLIENT_PARENT, // dp = pointer to UIElement *, set it to the parent for client elements
 
 // Layouting.
 UI_MSG_LAYOUT,
