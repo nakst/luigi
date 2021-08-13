@@ -71,22 +71,11 @@
 #endif
 
 typedef struct UITheme {
-	union {
-		struct {
-			uint32_t panel1, panel2;
-			uint32_t text, textDisabled, border;
-			uint32_t buttonNormal, buttonHovered, buttonPressed, buttonFocused, buttonDisabled;
-			uint32_t textboxNormal, textboxText, textboxFocused, textboxSelected, textboxSelectedText;
-			uint32_t scrollGlyph, scrollThumbNormal, scrollThumbHovered, scrollThumbPressed;
-			uint32_t codeFocused, codeBackground, codeDefault, codeComment, codeString, codeNumber, codeOperator, codePreprocessor;
-			uint32_t gaugeFilled;
-			uint32_t tableSelected, tableSelectedText, tableHovered, tableHoveredText;
-		};
-
-		struct {
-			uint32_t colors[32];
-		};
-	};
+	uint32_t panel1, panel2, selected, border;
+	uint32_t text, textDisabled, textSelected;
+	uint32_t buttonNormal, buttonHovered, buttonPressed, buttonDisabled;
+	uint32_t textboxNormal, textboxFocused;
+	uint32_t codeFocused, codeBackground, codeDefault, codeComment, codeString, codeNumber, codeOperator, codePreprocessor;
 } UITheme;
 
 #define UI_SIZE_BUTTON_MINIMUM_WIDTH (100)
@@ -363,6 +352,10 @@ typedef struct UIWindow {
 
 	int cursorX, cursorY;
 	int cursorStyle;
+
+	// Set when a textbox is modified. 
+	// Useful for tracking whether changes to the loaded document have been saved.
+	bool textboxModifiedFlag; 
 
 	bool ctrl, shift, alt;
 
@@ -699,93 +692,59 @@ struct {
 } ui;
 
 UITheme _uiThemeClassic = {
-	{{
-		.panel1 = 0xFFF0F0F0,
-		.panel2 = 0xFFFFFFFF,
+	.panel1 = 0xFFF0F0F0,
+	.panel2 = 0xFFFFFFFF,
+	.selected = 0xFF94BEFE,
+	.border = 0xFF404040,
 
-		.text = 0xFF000000,
-		.textDisabled = 0xFF404040,
+	.text = 0xFF000000,
+	.textDisabled = 0xFF404040,
+	.textSelected = 0xFF000000,
 
-		.border = 0xFF404040,
+	.buttonNormal = 0xFFE0E0E0,
+	.buttonHovered = 0xFFF0F0F0,
+	.buttonPressed = 0xFFA0A0A0,
+	.buttonDisabled = 0xFFF0F0F0,
 
-		.buttonNormal = 0xFFE0E0E0,
-		.buttonHovered = 0xFFF0F0F0,
-		.buttonPressed = 0xFFA0A0A0,
-		.buttonFocused = 0xFFD3E4FF,
-		.buttonDisabled = 0xFFF0F0F0,
+	.textboxNormal = 0xFFF8F8F8,
+	.textboxFocused = 0xFFFFFFFF,
 
-		.textboxNormal = 0xFFF8F8F8,
-		.textboxText = 0xFF000000,
-		.textboxFocused = 0xFFFFFFFF,
-		.textboxSelected = 0xFF175EC9,
-		.textboxSelectedText = 0xFFFFFFFF,
-
-		.scrollGlyph = 0xFF606060,
-		.scrollThumbNormal = 0xFFB0B0B0,
-		.scrollThumbHovered = 0xFFD0D0D0,
-		.scrollThumbPressed = 0xFF909090,
-
-		.codeFocused = 0xFF505055,
-		.codeBackground = 0xFF28282D,
-		.codeDefault = 0xFFFFFFFF,
-		.codeComment = 0xFFB4B4B4,
-		.codeString = 0xFFF5DDD1,
-		.codeNumber = 0xFFD1F5DD,
-		.codeOperator = 0xFFF5F3D1,
-		.codePreprocessor = 0xFFF5F3D1,
-
-		.gaugeFilled = 0xFF2CE342,
-
-		.tableSelected = 0xFF94BEFE,
-		.tableSelectedText = 0xFF000000,
-		.tableHovered = 0xFFD3E4FF,
-		.tableHoveredText = 0xFF000000,
-	}},
+	.codeFocused = 0xFFE0E0E0,
+	.codeBackground = 0xFFFFFFFF,
+	.codeDefault = 0xFF000000,
+	.codeComment = 0xFFA11F20,
+	.codeString = 0xFF037E01,
+	.codeNumber = 0xFF213EF1,
+	.codeOperator = 0xFF7F0480,
+	.codePreprocessor = 0xFF545D70,
 };
 
 UITheme _uiThemeDark = {
-	{{
-		.panel1 = 0xFF252B31,
-		.panel2 = 0xFF14181E,
+	.panel1 = 0xFF252B31,
+	.panel2 = 0xFF14181E,
+	.selected = 0xFF94BEFE,
+	.border = 0xFF000000,
 
-		.text = 0xFFFFFFFF,
-		.textDisabled = 0xFF787D81,
+	.text = 0xFFFFFFFF,
+	.textDisabled = 0xFF787D81,
+	.textSelected = 0xFF000000,
 
-		.border = 0xFF000000,
+	.buttonNormal = 0xFF383D41,
+	.buttonHovered = 0xFF4B5874,
+	.buttonPressed = 0xFF0D0D0F,
+	.buttonDisabled = 0xFF1B1F23,
 
-		.buttonNormal = 0xFF383D41,
-		.buttonHovered = 0xFF4B5874,
-		.buttonPressed = 0xFF0D0D0F,
-		.buttonFocused = 0xFF6290E0,
-		.buttonDisabled = 0xFF1B1F23,
+	.textboxNormal = 0xFF31353C,
+	.textboxFocused = 0xFF4D4D59,
 
-		.textboxNormal = 0xFF31353C,
-		.textboxText = 0xFFFFFFFF,
-		.textboxFocused = 0xFF4D4D59,
-		.textboxSelected = 0xFFBCC4F0,
-		.textboxSelectedText = 0xFF000000,
-
-		.scrollGlyph = 0xFF9C9C9C,
-		.scrollThumbNormal = 0xFFB0B0B0,
-		.scrollThumbHovered = 0xFFD0D0D0,
-		.scrollThumbPressed = 0xFF909090,
-
-		.codeFocused = 0xFF505055,
-		.codeBackground = 0xFF212126,
-		.codeDefault = 0xFFFFFFFF,
-		.codeComment = 0xFFB4B4B4,
-		.codeString = 0xFFF5DDD1,
-		.codeNumber = 0xFFC3F5D3,
-		.codeOperator = 0xFFF5D499,
-		.codePreprocessor = 0xFFF5F3D1,
-
-		.gaugeFilled = 0xFF2CE342,
-
-		.tableSelected = 0xFF94BEFE,
-		.tableSelectedText = 0xFF000000,
-		.tableHovered = 0xFFD3E4FF,
-		.tableHoveredText = 0xFF000000,
-	}},
+	.codeFocused = 0xFF505055,
+	.codeBackground = 0xFF212126,
+	.codeDefault = 0xFFFFFFFF,
+	.codeComment = 0xFFB4B4B4,
+	.codeString = 0xFFF5DDD1,
+	.codeNumber = 0xFFC3F5D3,
+	.codeOperator = 0xFFF5D499,
+	.codePreprocessor = 0xFFF5F3D1,
 };
 
 #ifndef UI_FREETYPE
@@ -1189,6 +1148,7 @@ void UIDrawInvert(UIPainter *painter, UIRectangle rectangle) {
 
 void UIDrawGlyph(UIPainter *painter, int x0, int y0, int c, uint32_t color) {
 	if (c < 0 || c > 127) c = '?';
+	if (c == '\r') c = ' ';
 
 	if (!ui.glyphsRendered[c]) {
 		FT_Load_Char(ui.font, c == 24 ? 0x2191 : c == 25 ? 0x2193 : c == 26 ? 0x2192 : c == 27 ? 0x2190 : c, FT_LOAD_DEFAULT);
@@ -1706,8 +1666,9 @@ int _UIButtonMessage(UIElement *element, UIMessage message, int di, void *dp) {
 		uint32_t color = disabled ? ui.theme.buttonDisabled
 			: (pressed && hovered) ? ui.theme.buttonPressed 
 			: (pressed || hovered) ? ui.theme.buttonHovered 
-			: focused ? ui.theme.buttonFocused : ui.theme.buttonNormal;
-		uint32_t textColor = disabled ? ui.theme.textDisabled : ui.theme.text;
+			: focused ? ui.theme.selected : ui.theme.buttonNormal;
+		uint32_t textColor = disabled ? ui.theme.textDisabled 
+			: color == ui.theme.selected ? ui.theme.textSelected : ui.theme.text;
 
 		UIDrawRectangle(painter, element->bounds, color, ui.theme.border, UI_RECT_1(isMenuItem ? 0 : 1));
 
@@ -1716,8 +1677,7 @@ int _UIButtonMessage(UIElement *element, UIMessage message, int di, void *dp) {
 				UI_RECT_1I((int) (UI_SIZE_BUTTON_CHECKED_AREA * element->window->scale))), ui.theme.buttonPressed);
 		}
 
-		UIRectangle bounds = UIRectangleAdd(element->bounds, 
-			UI_RECT_2I((int) (UI_SIZE_MENU_ITEM_MARGIN * element->window->scale), 0));
+		UIRectangle bounds = UIRectangleAdd(element->bounds, UI_RECT_2I((int) (UI_SIZE_MENU_ITEM_MARGIN * element->window->scale), 0));
 
 		if (isMenuItem) {
 			if (button->labelBytes == -1) {
@@ -2085,12 +2045,12 @@ int _UIScrollUpDownMessage(UIElement *element, UIMessage message, int di, void *
 			UIDrawGlyph(painter, isDown ? (element->bounds.r - ui.glyphWidth - 2 * element->window->scale) 
 					: (element->bounds.l + 2 * element->window->scale), 
 				(element->bounds.t + element->bounds.b - ui.glyphHeight) / 2,
-				isDown ? 26 : 27, ui.theme.scrollGlyph);
+				isDown ? 26 : 27, ui.theme.text);
 		} else {
 			UIDrawGlyph(painter, (element->bounds.l + element->bounds.r - ui.glyphWidth) / 2 + 1, 
 				isDown ? (element->bounds.b - ui.glyphHeight - 2 * element->window->scale) 
 					: (element->bounds.t + 2 * element->window->scale), 
-				isDown ? 25 : 24, ui.theme.scrollGlyph);
+				isDown ? 25 : 24, ui.theme.text);
 		}
 	} else if (message == UI_MSG_UPDATE) {
 		UIElementRepaint(element, NULL);
@@ -2121,9 +2081,9 @@ int _UIScrollThumbMessage(UIElement *element, UIMessage message, int di, void *d
 
 	if (message == UI_MSG_PAINT) {
 		UIPainter *painter = (UIPainter *) dp;
-		uint32_t color = element == element->window->pressed ? ui.theme.scrollThumbPressed 
-			: element == element->window->hovered ? ui.theme.scrollThumbHovered : ui.theme.scrollThumbNormal;
-		UIDrawRectangle(painter, element->bounds, color, ui.theme.border, UI_RECT_1(0));
+		uint32_t color = element == element->window->pressed ? ui.theme.buttonPressed 
+			: element == element->window->hovered ? ui.theme.buttonHovered : ui.theme.buttonNormal;
+		UIDrawRectangle(painter, element->bounds, color, ui.theme.border, UI_RECT_1(2));
 	} else if (message == UI_MSG_UPDATE) {
 		UIElementRepaint(element, NULL);
 	} else if (message == UI_MSG_MOUSE_DRAG && element->window->pressedButton == 1) {
@@ -2448,7 +2408,7 @@ int _UIGaugeMessage(UIElement *element, UIMessage message, int di, void *dp) {
 		UIDrawRectangle(painter, element->bounds, ui.theme.buttonNormal, ui.theme.border, UI_RECT_1(1));
 		UIRectangle filled = UIRectangleAdd(element->bounds, UI_RECT_1I(1));
 		filled.r = filled.l + UI_RECT_WIDTH(filled) * gauge->position;
-		UIDrawBlock(painter, filled, ui.theme.gaugeFilled);
+		UIDrawBlock(painter, filled, ui.theme.selected);
 	}
 
 	return 0;
@@ -2614,11 +2574,10 @@ int _UITableMessage(UIElement *element, UIMessage message, int di, void *dp) {
 			uint32_t textColor = ui.theme.text;
 
 			if (m.isSelected) {
-				UIDrawBlock(painter, row, ui.theme.tableSelected);
-				textColor = ui.theme.tableSelectedText;
+				UIDrawBlock(painter, row, ui.theme.selected);
+				textColor = ui.theme.textSelected;
 			} else if (hovered == i) {
-				UIDrawBlock(painter, row, ui.theme.tableHovered);
-				textColor = ui.theme.tableHoveredText;
+				UIDrawBlock(painter, row, ui.theme.buttonHovered);
 			}
 
 			UIRectangle cell = row;
@@ -2726,6 +2685,8 @@ void UITextboxReplace(UITextbox *textbox, const char *text, ptrdiff_t bytes, boo
 	if (sendChangedMessage) {
 		UIElementMessage(&textbox->e, UI_MSG_VALUE_CHANGED, 0, 0);
 	}
+
+	textbox->e.window->textboxModifiedFlag = true;
 }
 
 void UITextboxClear(UITextbox *textbox, bool sendChangedMessage) {
@@ -2798,11 +2759,11 @@ int _UITextboxMessage(UIElement *element, UIMessage message, int di, void *dp) {
 #endif
 		selection.carets[0] = textbox->carets[0];
 		selection.carets[1] = textbox->carets[1];
-		selection.colorBackground = ui.theme.textboxSelected;
-		selection.colorText = ui.theme.textboxSelectedText;
+		selection.colorBackground = ui.theme.selected;
+		selection.colorText = ui.theme.textSelected;
 		textBounds.l -= textbox->scroll;
 		UIDrawString(painter, textBounds, textbox->string, textbox->bytes, 
-			disabled ? ui.theme.textDisabled : ui.theme.textboxText, UI_ALIGN_LEFT, focused ? &selection : NULL);
+			disabled ? ui.theme.textDisabled : ui.theme.text, UI_ALIGN_LEFT, focused ? &selection : NULL);
 	} else if (message == UI_MSG_GET_CURSOR) {
 		return UI_CURSOR_TEXT;
 	} else if (message == UI_MSG_LEFT_DOWN) {
@@ -4993,7 +4954,8 @@ int _UIWindowCanvasMessage(EsElement *element, EsMessage *message) {
 		window->e.clip = UI_RECT_2S(window->width, window->height);
 		UIElementMessage(&window->e, UI_MSG_LAYOUT, 0, 0);
 		_UIUpdate();
-	} else if (message->type == ES_MSG_MOUSE_MOVED || message->type == ES_MSG_MOUSE_DRAGGED || message->type == ES_MSG_HOVERED_END) {
+	} else if (message->type == ES_MSG_MOUSE_MOVED || message->type == ES_MSG_HOVERED_END
+			|| message->type == ES_MSG_MOUSE_LEFT_DRAG || message->type == ES_MSG_MOUSE_RIGHT_DRAG || message->type == ES_MSG_MOUSE_MIDDLE_DRAG) {
 		EsPoint point = EsMouseGetPosition(element); 
 		window->cursorX = point.x, window->cursorY = point.y;
 		_UIWindowInputEvent(window, UI_MSG_MOUSE_MOVE, 0, 0);
@@ -5007,7 +4969,7 @@ int _UIWindowCanvasMessage(EsElement *element, EsMessage *message) {
 		m.textBytes = EsMessageGetInputText(message, c);
 		m.code = message->keyboard.scancode;
 		_UIWindowInputEvent(window, UI_MSG_KEY_TYPED, 0, &m);
-	} else if (message->type == ES_MSG_CLICKED) {
+	} else if (message->type == ES_MSG_MOUSE_LEFT_CLICK) {
 		_UIInspectorSetFocusedWindow(window);
 	} else if (message->type == ES_MSG_USER_START) {
 		UIElementMessage(&window->e, (UIMessage) message->user.context1.u, 0, (void *) message->user.context2.p);
