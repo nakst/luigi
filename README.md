@@ -2,10 +2,6 @@
 
 A barebones single-header GUI library for Win32, X11 and Essence. 
 
-![Screenshot showing an example interface with buttons, split panes, tab panes, sliders, gauges, labels, scrollbars, tables and code views.](https://cdn.discordapp.com/attachments/462643277321994245/792434182348341268/unknown.png)
-
-![Screenshot showing an example interface with a theme editor. The inspector window is open, showing a list of the elements in the interface, their positions, and relations.](https://cdn.discordapp.com/attachments/462643277321994245/819273782572220476/5.png)
-
 ## Building example
 
 ### Windows
@@ -32,11 +28,11 @@ If you want to use FreeType for font rendering, pass the additional arguments to
 
 ## Projects made with luigi
 
-Designer, https://gitlab.com/nakst/essence/-/blob/master/util/designer.c
-![Screenshot of Designer, showing a list of layers, sequences, keyframes, properties, preview settings, and a preview of a push button being edited.](https://cdn.discordapp.com/attachments/462643277321994245/810295844410228766/unknown.png)
+Designer, https://gitlab.com/nakst/essence/-/tree/master/util/designer
+![Screenshot of Designer, showing a list of layers, sequences, keyframes, properties, preview settings, and a preview of a checkbox being edited.](https://raw.githubusercontent.com/nakst/cdn/main/designer.png)
 
 GDB frontend, https://github.com/nakst/gf/
-![Screenshot of the debugger's interface, showing the source view, breakpoints list, call stack and command prompt.](https://cdn.discordapp.com/attachments/462643277321994245/795277703943159818/image.png)
+![Screenshot of the debugger's interface, showing the source view, breakpoints list, call stack and command prompt.](https://raw.githubusercontent.com/nakst/cdn/main/gf1.png)
 
 ## Documentation
 
