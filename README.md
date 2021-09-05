@@ -104,7 +104,7 @@ UIPanel *panel = UIPanelCreate(&window->e, UI_PANEL_GRAY | UI_PANEL_MEDIUM_SPACI
 return UIMessageLoop();
 ```
 
-![A empty window with a dark gray background.](https://cdn.discordapp.com/attachments/462643277321994245/819271897610059877/2.png)
+![A empty window with a dark gray background.](https://raw.githubusercontent.com/nakst/cdn/main/2.png)
 
 We can now add some elements to the panel.
 
@@ -130,7 +130,7 @@ label = UILabelCreate(&panel->e, 0, "Label", -1);
 textbox = UITextboxCreate(&panel->e, 0);
 ```
 
-![A window showing the added elements, arranged from top to bottom and horizontally centered.](https://cdn.discordapp.com/attachments/462643277321994245/819271890937446450/3.png)
+![A window showing the added elements, arranged from top to bottom and horizontally centered.](https://raw.githubusercontent.com/nakst/cdn/main/3.png)
 
 Let's add some interactivity to the interface. Set the message callbacks for the button, slider and textbox. 
 We can process input messages in these callbacks, and respond to them however we want.
@@ -185,7 +185,7 @@ int TextboxMessage(UIElement *element, UIMessage message, int di, void *dp) {
 }
 ```
 
-![A window showing the elements having been interacted with. The label and textbox both show the text "hello, world!", and the gauge and slider have the same position. A shade of green has been selected in the color picker.](https://cdn.discordapp.com/attachments/462643277321994245/819271892748861461/4.png)
+![A window showing the elements having been interacted with. The label and textbox both show the text "hello, world!", and the gauge and slider have the same position. A shade of green has been selected in the color picker.](https://raw.githubusercontent.com/nakst/cdn/main/4.png)
 
 ### UIRectangle
 
