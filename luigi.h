@@ -22,6 +22,8 @@
 #define _UI_TO_STRING_2(x) _UI_TO_STRING_1(x)
 
 #ifdef UI_WINDOWS
+#undef _UNICODE
+#undef UNICODE
 #include <windows.h>
 
 #define UI_ASSERT(x) do { if (!(x)) { ui.assertionFailure = true; \
@@ -64,24 +66,28 @@
 #define UI_CLOCK EsTimeStampMs
 #define UI_CLOCKS_PER_SECOND 1000
 #define UI_CLOCK_T uint64_t
+
+// Callback to allow the application to process messages.
+void _UIMessageProcess(EsMessage *message);
 #endif
 
 #ifdef UI_DEBUG
 #include <stdio.h>
 #endif
 
-typedef struct UITheme {
-	uint32_t panel1, panel2, selected, border;
-	uint32_t text, textDisabled, textSelected;
-	uint32_t buttonNormal, buttonHovered, buttonPressed, buttonDisabled;
-	uint32_t textboxNormal, textboxFocused;
-	uint32_t codeFocused, codeBackground, codeDefault, codeComment, codeString, codeNumber, codeOperator, codePreprocessor;
-} UITheme;
+#ifdef UI_FREETYPE
+#include <ft2build.h>
+#include FT_FREETYPE_H
+#include <freetype/ftbitmap.h>
+#endif
 
 #define UI_SIZE_BUTTON_MINIMUM_WIDTH (100)
 #define UI_SIZE_BUTTON_PADDING (16)
 #define UI_SIZE_BUTTON_HEIGHT (27)
 #define UI_SIZE_BUTTON_CHECKED_AREA (4)
+
+#define UI_SIZE_CHECKBOX_BOX (14)
+#define UI_SIZE_CHECKBOX_GAP (8)
 
 #define UI_SIZE_MENU_ITEM_HEIGHT (24)
 #define UI_SIZE_MENU_ITEM_MINIMUM_WIDTH (160)
@@ -97,7 +103,7 @@ typedef struct UITheme {
 
 #define UI_SIZE_TEXTBOX_MARGIN (3)
 #define UI_SIZE_TEXTBOX_WIDTH (200)
-#define UI_SIZE_TEXTBOX_HEIGHT (25)
+#define UI_SIZE_TEXTBOX_HEIGHT (27)
 
 #define UI_SIZE_TAB_PANE_SPACE_TOP (2)
 #define UI_SIZE_TAB_PANE_SPACE_LEFT (4)
@@ -107,8 +113,8 @@ typedef struct UITheme {
 #define UI_SIZE_SCROLL_BAR (16)
 #define UI_SIZE_SCROLL_MINIMUM_THUMB (20)
 
-#define UI_SIZE_CODE_MARGIN (ui.glyphWidth * 5)
-#define UI_SIZE_CODE_MARGIN_GAP (ui.glyphWidth * 1)
+#define UI_SIZE_CODE_MARGIN (ui.activeFont->glyphWidth * 5)
+#define UI_SIZE_CODE_MARGIN_GAP (ui.activeFont->glyphWidth * 1)
 
 #define UI_SIZE_TABLE_HEADER (26)
 #define UI_SIZE_TABLE_COLUMN_GAP (20)
@@ -165,6 +171,7 @@ typedef enum UIMessage {
 	UI_MSG_WINDOW_CLOSE, // return 1 to prevent default (process exit for UIWindow; close for UIMDIChild)
 	UI_MSG_TAB_SELECTED, // sent to the tab that was selected (not the tab pane itself)
 	UI_MSG_WINDOW_DROP_FILES, // di = count, dp = char ** of paths
+	UI_MSG_WINDOW_ACTIVATE,
 
 	UI_MSG_USER,
 } UIMessage;
@@ -177,6 +184,14 @@ typedef struct UIRectangle {
 } UIRectangle;
 #endif
 
+typedef struct UITheme {
+	uint32_t panel1, panel2, selected, border;
+	uint32_t text, textDisabled, textSelected;
+	uint32_t buttonNormal, buttonHovered, buttonPressed, buttonDisabled;
+	uint32_t textboxNormal, textboxFocused;
+	uint32_t codeFocused, codeBackground, codeDefault, codeComment, codeString, codeNumber, codeOperator, codePreprocessor;
+} UITheme;
+
 typedef struct UIPainter {
 	UIRectangle clip;
 	uint32_t *bits;
@@ -185,6 +200,18 @@ typedef struct UIPainter {
 	int fillCount;
 #endif
 } UIPainter;
+
+typedef struct UIFont {
+	int glyphWidth, glyphHeight;
+
+#ifdef UI_FREETYPE
+	bool isFreeType;
+	FT_Face font;
+	FT_Bitmap glyphs[128];
+	bool glyphsRendered[128];
+	int glyphOffsetsX[128], glyphOffsetsY[128];
+#endif
+} UIFont;
 
 typedef struct UIShortcut {
 	intptr_t code;
@@ -334,6 +361,7 @@ typedef struct UIWindow {
 #define UI_WINDOW_MENU (1 << 0)
 #define UI_WINDOW_INSPECTOR (1 << 1)
 #define UI_WINDOW_CENTER_IN_OWNER (1 << 2)
+#define UI_WINDOW_MAXIMIZE (1 << 3)
 
 	UIElement e;
 
@@ -413,6 +441,18 @@ typedef struct UIButton {
 	void (*invoke)(void *cp);
 } UIButton;
 
+typedef struct UICheckbox {
+#define UI_CHECKBOX_ALLOW_INDETERMINATE (1 << 0)
+	UIElement e;
+#define UI_CHECK_UNCHECKED (0)
+#define UI_CHECK_CHECKED (1)
+#define UI_CHECK_INDETERMINATE (2)
+	uint8_t check;
+	char *label;
+	ptrdiff_t labelBytes;
+	void (*invoke)(void *cp);
+} UICheckbox;
+
 typedef struct UILabel {
 	UIElement e;
 	char *label;
@@ -456,6 +496,7 @@ typedef struct UICode {
 	UIElement e;
 	UIScrollBar *vScroll;
 	UICodeLine *lines;
+	UIFont *font;
 	int lineCount, focused;
 	bool moveScrollToFocusNextLayout;
 	char *content;
@@ -482,14 +523,20 @@ typedef struct UITextbox {
 	ptrdiff_t bytes;
 	int carets[2];
 	int scroll;
+	bool rejectNextKey;
 } UITextbox;
 
-typedef struct UIMenu {
 #define UI_MENU_PLACE_ABOVE (1 << 0)
+#define UI_MENU_NO_SCROLL (1 << 1)
+#ifdef UI_ESSENCE
+typedef EsMenu UIMenu;
+#else
+typedef struct UIMenu {
 	UIElement e;
 	int pointX, pointY;
 	UIScrollBar *vScroll;
 } UIMenu;
+#endif
 
 typedef struct UISlider {
 	UIElement e;
@@ -549,6 +596,7 @@ UIElement *UIElementCreate(size_t bytes, UIElement *parent, uint32_t flags,
 	int (*messageClass)(UIElement *, UIMessage, int, void *), const char *cClassName);
 
 UIButton *UIButtonCreate(UIElement *parent, uint32_t flags, const char *label, ptrdiff_t labelBytes);
+UICheckbox *UICheckboxCreate(UIElement *parent, uint32_t flags, const char *label, ptrdiff_t labelBytes);
 UIColorPicker *UIColorPickerCreate(UIElement *parent, uint32_t flags);
 UIExpandPane *UIExpandPaneCreate(UIElement *parent, uint32_t flags, const char *label, ptrdiff_t labelBytes, uint32_t panelFlags);
 UIGauge *UIGaugeCreate(UIElement *parent, uint32_t flags);
@@ -595,7 +643,7 @@ void UICodeInsertContent(UICode *code, const char *content, ptrdiff_t byteCount,
 
 void UIDrawBlock(UIPainter *painter, UIRectangle rectangle, uint32_t color);
 void UIDrawInvert(UIPainter *painter, UIRectangle rectangle);
-void UIDrawLine(UIPainter *painter, int x0, int y0, int x1, int y1, uint32_t color);
+bool UIDrawLine(UIPainter *painter, int x0, int y0, int x1, int y1, uint32_t color); // Returns false if the line was not visible.
 void UIDrawGlyph(UIPainter *painter, int x, int y, int c, uint32_t color);
 void UIDrawRectangle(UIPainter *painter, UIRectangle r, uint32_t mainColor, uint32_t borderColor, UIRectangle borderSize);
 void UIDrawBorder(UIPainter *painter, UIRectangle r, uint32_t borderColor, UIRectangle borderSize);
@@ -634,17 +682,14 @@ void UIColorToRGB(float hue, float saturation, float value, uint32_t *rgb);
 
 char *UIStringCopy(const char *in, ptrdiff_t inBytes);
 
+UIFont *UIFontCreate(const char *cPath, uint32_t size);
+UIFont *UIFontActivate(UIFont *font); // Returns the previously active font.
+
 #ifdef UI_DEBUG
 void UIInspectorLog(const char *cFormat, ...);
 #endif
 
 #ifdef UI_IMPLEMENTATION
-
-#ifdef UI_FREETYPE
-#include <ft2build.h>
-#include FT_FREETYPE_H
-#include <freetype/ftbitmap.h>
-#endif
 
 struct {
 	UIWindow *windows;
@@ -654,11 +699,11 @@ struct {
 	UIElement *parentStack[16];
 	int parentStackCount;
 
-	int glyphWidth, glyphHeight;
-
 	bool quit;
 	const char *dialogResult;
 	UIElement *dialogOldFocus;
+
+	UIFont *activeFont;
 
 #ifdef UI_DEBUG
 	UIWindow *inspector;
@@ -684,14 +729,13 @@ struct {
 
 #ifdef UI_ESSENCE
 	EsInstance *instance;
+
+	void *menuData[256]; // HACK This limits the number of menu items to 128.
+	uintptr_t menuIndex;
 #endif
 
 #ifdef UI_FREETYPE
-	FT_Face font;
 	FT_Library ft;
-	FT_Bitmap glyphs[128];
-	bool glyphsRendered[128];
-	int glyphOffsetsX[128], glyphOffsetsY[128];
 #endif
 } ui;
 
@@ -751,8 +795,6 @@ UITheme _uiThemeDark = {
 	.codePreprocessor = 0xFFF5F3D1,
 };
 
-#ifndef UI_FREETYPE
-
 // Taken from https://commons.wikimedia.org/wiki/File:Codepage-437.png
 // Public domain.
 
@@ -790,8 +832,6 @@ const uint64_t _uiFont[] = {
 	0x3C66C30000000000UL, 0x00000000C3663C18UL, 0x6363630000000000UL, 0x001F30607E636363UL, 0x18337F0000000000UL, 0x000000007F63060CUL, 0x180E181818700000UL, 0x0000000070181818UL, 
 	0x1800181818180000UL, 0x0000000018181818UL, 0x18701818180E0000UL, 0x000000000E181818UL, 0x000000003B6E0000UL, 0x0000000000000000UL, 0x63361C0800000000UL, 0x00000000007F6363UL, 
 };
-
-#endif
 
 void _UIWindowEndPaint(UIWindow *window, UIPainter *painter);
 void _UIWindowSetCursor(UIWindow *window, int cursor);
@@ -1071,9 +1111,21 @@ void UIDrawBlock(UIPainter *painter, UIRectangle rectangle, uint32_t color) {
 		return;
 	}
 
+#ifdef UI_SSE2
+	__m128i color4 = _mm_set_epi32(color, color, color, color);
+#endif
+
 	for (int line = rectangle.t; line < rectangle.b; line++) {
 		uint32_t *bits = painter->bits + line * painter->width + rectangle.l;
 		int count = UI_RECT_WIDTH(rectangle);
+
+#ifdef UI_SSE2
+		while (count >= 4) {
+			_mm_storeu_si128((__m128i *) bits, color4);
+			bits += 4;
+			count -= 4;
+		} 
+#endif
 
 		while (count--) {
 			*bits++ = color;
@@ -1085,26 +1137,39 @@ void UIDrawBlock(UIPainter *painter, UIRectangle rectangle, uint32_t color) {
 #endif
 }
 
-void UIDrawLine(UIPainter *painter, int x0, int y0, int x1, int y1, uint32_t color) {
-	// Clip the line to the painter's clip rectangle.
+bool UIDrawLine(UIPainter *painter, int x0, int y0, int x1, int y1, uint32_t color) {
+	// Apply the clip.
 
-	if (x0 > x1) { int t = x0; x0 = x1; x1 = t; }
-	if (y0 > y1) { int t = y0; y0 = y1; y1 = t; }
-	UIRectangle bounds = UIRectangleIntersection(painter->clip, UI_RECT_4(x0, x1, y0, y1));
+	UIRectangle c = painter->clip;
+	if (!UI_RECT_VALID(c)) return false;
 	int dx = x1 - x0, dy = y1 - y0;
-	int points[8], count = 0;
-	int iLY = dx ? (y0 + (bounds.l - x0) * dy / dx) : 0x7FFFFFFF;
-	int iRY = dx ? (y0 + (bounds.r - x0) * dy / dx) : 0x7FFFFFFF;
-	int iTX = dy ? (x0 + (bounds.t - y0) * dx / dy) : 0x7FFFFFFF;
-	int iBX = dy ? (x0 + (bounds.b - y0) * dx / dy) : 0x7FFFFFFF;
-	if (iLY >= bounds.t && iLY <= bounds.b) points[count + 0] = bounds.l, points[count + 1] = iLY, count += 2;
-	if (iRY >= bounds.t && iRY <= bounds.b) points[count + 0] = bounds.r, points[count + 1] = iRY, count += 2;
-	if (iTX >= bounds.l && iTX <= bounds.r) points[count + 1] = bounds.t, points[count + 0] = iTX, count += 2;
-	if (iBX >= bounds.l && iBX <= bounds.r) points[count + 1] = bounds.b, points[count + 0] = iBX, count += 2;
-	if (count < 4) return;
-	x0 = points[0], y0 = points[1], x1 = points[2], y1 = points[3];
-	if (x0 == x1 && y0 == y1 && count > 4) x1 = points[4], y1 = points[5];
+	const int p[4] = { -dx, dx, -dy, dy };
+	const int q[4] = { x0 - c.l, c.r - 1 - x0, y0 - c.t, c.b - 1 - y0 };
+	float t0 = 0.0f, t1 = 1.0f; // How far along the line the points end up.
+
+	for (int i = 0; i < 4; i++) {
+		if (!p[i] && q[i] < 0) return false;
+		float r = (float) q[i] / p[i];
+		if (p[i] < 0 && r > t1) return false;
+		if (p[i] > 0 && r < t0) return false;
+		if (p[i] < 0 && r > t0) t0 = r;
+		if (p[i] > 0 && r < t1) t1 = r;
+	}
+
+	x1 = x0 + t1 * dx, y1 = y0 + t1 * dy;
+	x0 += t0 * dx, y0 += t0 * dy;
+
+	// Calculate the delta X and delta Y.
+
+	if (y1 < y0) {
+		int t;
+		t = x0, x0 = x1, x1 = t;
+		t = y0, y0 = y1, y1 = t;
+	}
+
 	dx = x1 - x0, dy = y1 - y0;
+	int dxs = dx < 0 ? -1 : 1;
+	if (dx < 0) dx = -dx;
 
 	// Draw the line using Bresenham's line algorithm.
 
@@ -1113,7 +1178,7 @@ void UIDrawLine(UIPainter *painter, int x0, int y0, int x1, int y1, uint32_t col
 	if (dy * dy < dx * dx) {
 		int m = 2 * dy - dx;
 
-		for (int i = 0; i < dx; i++, bits++) {
+		for (int i = 0; i < dx; i++, bits += dxs) {
 			*bits = color;
 			if (m > 0) bits += painter->width, m -= 2 * dx;
 			m += 2 * dy;
@@ -1123,10 +1188,12 @@ void UIDrawLine(UIPainter *painter, int x0, int y0, int x1, int y1, uint32_t col
 
 		for (int i = 0; i < dy; i++, bits += painter->width) {
 			*bits = color;
-			if (m > 0) bits++, m -= 2 * dy;
+			if (m > 0) bits += dxs, m -= 2 * dy;
 			m += 2 * dx;
 		}
 	}
+
+	return true;
 }
 
 void UIDrawInvert(UIPainter *painter, UIRectangle rectangle) {
@@ -1148,83 +1215,85 @@ void UIDrawInvert(UIPainter *painter, UIRectangle rectangle) {
 	}
 }
 
-#ifdef UI_FREETYPE
-
 void UIDrawGlyph(UIPainter *painter, int x0, int y0, int c, uint32_t color) {
-	if (c < 0 || c > 127) c = '?';
-	if (c == '\r') c = ' ';
+#ifdef UI_FREETYPE
+	UIFont *font = ui.activeFont;
 
-	if (!ui.glyphsRendered[c]) {
-		FT_Load_Char(ui.font, c == 24 ? 0x2191 : c == 25 ? 0x2193 : c == 26 ? 0x2192 : c == 27 ? 0x2190 : c, FT_LOAD_DEFAULT);
+	if (font->isFreeType) {
+		if (c < 0 || c > 127) c = '?';
+		if (c == '\r') c = ' ';
+
+		if (!font->glyphsRendered[c]) {
+			FT_Load_Char(font->font, c == 24 ? 0x2191 : c == 25 ? 0x2193 : c == 26 ? 0x2192 : c == 27 ? 0x2190 : c, FT_LOAD_DEFAULT);
 #ifdef UI_FREETYPE_SUBPIXEL
-		FT_Render_Glyph(ui.font->glyph, FT_RENDER_MODE_LCD);
+			FT_Render_Glyph(font->font->glyph, FT_RENDER_MODE_LCD);
 #else
-		FT_Render_Glyph(ui.font->glyph, FT_RENDER_MODE_NORMAL);
+			FT_Render_Glyph(font->font->glyph, FT_RENDER_MODE_NORMAL);
 #endif
-		FT_Bitmap_Copy(ui.ft, &ui.font->glyph->bitmap, &ui.glyphs[c]);
-		ui.glyphOffsetsX[c] = ui.font->glyph->bitmap_left;
-		ui.glyphOffsetsY[c] = ui.font->size->metrics.ascender / 64 - ui.font->glyph->bitmap_top;
-		ui.glyphsRendered[c] = true;
-	}
-
-	FT_Bitmap *bitmap = &ui.glyphs[c];
-	x0 += ui.glyphOffsetsX[c], y0 += ui.glyphOffsetsY[c];
-
-	for (int y = 0; y < (int) bitmap->rows; y++) {
-		if (y0 + y < painter->clip.t) continue;
-		if (y0 + y >= painter->clip.b) break;
-
-		int width = bitmap->width;
-#ifdef UI_FREETYPE_SUBPIXEL
-		width /= 3;
-#endif
-
-		for (int x = 0; x < width; x++) {
-			if (x0 + x < painter->clip.l) continue;
-			if (x0 + x >= painter->clip.r) break;
-
-			uint32_t *destination = painter->bits + (x0 + x) + (y0 + y) * painter->width;
-			uint32_t original = *destination;
-
-#ifdef UI_FREETYPE_SUBPIXEL
-			uint32_t ra = ((uint8_t *) bitmap->buffer)[x * 3 + y * bitmap->pitch + 0];
-			uint32_t ga = ((uint8_t *) bitmap->buffer)[x * 3 + y * bitmap->pitch + 1];
-			uint32_t ba = ((uint8_t *) bitmap->buffer)[x * 3 + y * bitmap->pitch + 2];
-			ra += (ga - ra) / 2, ba += (ga - ba) / 2;
-#else
-			uint32_t ra = ((uint8_t *) bitmap->buffer)[x + y * bitmap->pitch];
-			uint32_t ga = ra, ba = ra;
-#endif
-			uint32_t r2 = (255 - ra) * ((original & 0x000000FF) >> 0);
-			uint32_t g2 = (255 - ga) * ((original & 0x0000FF00) >> 8);
-			uint32_t b2 = (255 - ba) * ((original & 0x00FF0000) >> 16);
-			uint32_t r1 = ra * ((color & 0x000000FF) >> 0);
-			uint32_t g1 = ga * ((color & 0x0000FF00) >> 8);
-			uint32_t b1 = ba * ((color & 0x00FF0000) >> 16);
-
-			uint32_t result = 0xFF000000 | (0x00FF0000 & ((b1 + b2) << 8)) 
-				| (0x0000FF00 & ((g1 + g2) << 0)) 
-				| (0x000000FF & ((r1 + r2) >> 8));
-			*destination = result;
+			FT_Bitmap_Copy(ui.ft, &font->font->glyph->bitmap, &font->glyphs[c]);
+			font->glyphOffsetsX[c] = font->font->glyph->bitmap_left;
+			font->glyphOffsetsY[c] = font->font->size->metrics.ascender / 64 - font->font->glyph->bitmap_top;
+			font->glyphsRendered[c] = true;
 		}
-	}
-}
 
+		FT_Bitmap *bitmap = &font->glyphs[c];
+		x0 += font->glyphOffsetsX[c], y0 += font->glyphOffsetsY[c];
+
+		for (int y = 0; y < (int) bitmap->rows; y++) {
+			if (y0 + y < painter->clip.t) continue;
+			if (y0 + y >= painter->clip.b) break;
+
+			int width = bitmap->width;
+#ifdef UI_FREETYPE_SUBPIXEL
+			width /= 3;
+#endif
+
+			for (int x = 0; x < width; x++) {
+				if (x0 + x < painter->clip.l) continue;
+				if (x0 + x >= painter->clip.r) break;
+
+				uint32_t *destination = painter->bits + (x0 + x) + (y0 + y) * painter->width;
+				uint32_t original = *destination;
+
+#ifdef UI_FREETYPE_SUBPIXEL
+				uint32_t ra = ((uint8_t *) bitmap->buffer)[x * 3 + y * bitmap->pitch + 0];
+				uint32_t ga = ((uint8_t *) bitmap->buffer)[x * 3 + y * bitmap->pitch + 1];
+				uint32_t ba = ((uint8_t *) bitmap->buffer)[x * 3 + y * bitmap->pitch + 2];
+				ra += (ga - ra) / 2, ba += (ga - ba) / 2;
 #else
+				uint32_t ra = ((uint8_t *) bitmap->buffer)[x + y * bitmap->pitch];
+				uint32_t ga = ra, ba = ra;
+#endif
+				uint32_t r2 = (255 - ra) * ((original & 0x000000FF) >> 0);
+				uint32_t g2 = (255 - ga) * ((original & 0x0000FF00) >> 8);
+				uint32_t b2 = (255 - ba) * ((original & 0x00FF0000) >> 16);
+				uint32_t r1 = ra * ((color & 0x000000FF) >> 0);
+				uint32_t g1 = ga * ((color & 0x0000FF00) >> 8);
+				uint32_t b1 = ba * ((color & 0x00FF0000) >> 16);
 
-void UIDrawGlyph(UIPainter *painter, int x, int y, int c, uint32_t color) {
+				uint32_t result = 0xFF000000 | (0x00FF0000 & ((b1 + b2) << 8)) 
+					| (0x0000FF00 & ((g1 + g2) << 0)) 
+					| (0x000000FF & ((r1 + r2) >> 8));
+				*destination = result;
+			}
+		}
+
+		return;
+	}
+#endif
+
 	if (c < 0 || c > 127) c = '?';
 
-	UIRectangle rectangle = UIRectangleIntersection(painter->clip, UI_RECT_4(x, x + 8, y, y + 16));
+	UIRectangle rectangle = UIRectangleIntersection(painter->clip, UI_RECT_4(x0, x0 + 8, y0, y0 + 16));
 
 	const uint8_t *data = (const uint8_t *) _uiFont + c * 16;
 
 	for (int i = rectangle.t; i < rectangle.b; i++) {
 		uint32_t *bits = painter->bits + i * painter->width + rectangle.l;
-		uint8_t byte = data[i - y];
+		uint8_t byte = data[i - y0];
 
 		for (int j = rectangle.l; j < rectangle.r; j++) {
-			if (byte & (1 << (j - x))) {
+			if (byte & (1 << (j - x0))) {
 				*bits = color;
 			}
 
@@ -1232,8 +1301,6 @@ void UIDrawGlyph(UIPainter *painter, int x, int y, int c, uint32_t color) {
 		}
 	}
 }
-
-#endif
 
 ptrdiff_t _UIStringLength(const char *cString) {
 	if (!cString) return 0;
@@ -1262,11 +1329,11 @@ int UIMeasureStringWidth(const char *string, ptrdiff_t bytes) {
 		bytes = _UIStringLength(string);
 	}
 	
-	return bytes * ui.glyphWidth;
+	return bytes * ui.activeFont->glyphWidth;
 }
 
 int UIMeasureStringHeight() {
-	return ui.glyphHeight;
+	return ui.activeFont->glyphHeight;
 }
 
 void UIDrawString(UIPainter *painter, UIRectangle r, const char *string, ptrdiff_t bytes, uint32_t color, int align, UIStringSelection *selection) {
@@ -1305,7 +1372,7 @@ void UIDrawString(UIPainter *painter, UIRectangle r, const char *string, ptrdiff
 		uint32_t colorText = color;
 
 		if (j >= selectFrom && j < selectTo) {
-			UIDrawBlock(painter, UI_RECT_4(x, x + ui.glyphWidth, y, y + height), selection->colorBackground);
+			UIDrawBlock(painter, UI_RECT_4(x, x + ui.activeFont->glyphWidth, y, y + height), selection->colorBackground);
 			colorText = selection->colorText;
 		}
 
@@ -1317,10 +1384,10 @@ void UIDrawString(UIPainter *painter, UIRectangle r, const char *string, ptrdiff
 			UIDrawInvert(painter, UI_RECT_4(x, x + 1, y, y + height));
 		}
 
-		x += ui.glyphWidth, i++;
+		x += ui.activeFont->glyphWidth, i++;
 
 		if (c == '\t') {
-			while (i & 3) x += ui.glyphWidth, i++;
+			while (i & 3) x += ui.activeFont->glyphWidth, i++;
 		}
 	}
 
@@ -1644,6 +1711,20 @@ UIPanel *UIPanelCreate(UIElement *parent, uint32_t flags) {
 	return panel;
 }
 
+void _UIButtonCalculateColors(UIElement *element, uint32_t *color, uint32_t *textColor) {
+	bool disabled = element->flags & UI_ELEMENT_DISABLED;
+	bool focused = element == element->window->focused;
+	bool pressed = element == element->window->pressed;
+	bool hovered = element == element->window->hovered;
+	*color = disabled ? ui.theme.buttonDisabled
+		: (pressed && hovered) ? ui.theme.buttonPressed 
+		: (pressed || hovered) ? ui.theme.buttonHovered 
+		: focused ? ui.theme.selected : ui.theme.buttonNormal;
+	*textColor = disabled ? ui.theme.textDisabled 
+		: *color == ui.theme.selected ? ui.theme.textSelected : ui.theme.text;
+}
+
+
 int _UIButtonMessage(UIElement *element, UIMessage message, int di, void *dp) {
 	UIButton *button = (UIButton *) element;
 	bool isMenuItem = element->flags & UI_BUTTON_MENU_ITEM;
@@ -1658,7 +1739,7 @@ int _UIButtonMessage(UIElement *element, UIMessage message, int di, void *dp) {
 	} else if (message == UI_MSG_GET_WIDTH) {
 		int labelSize = UIMeasureStringWidth(button->label, button->labelBytes);
 		int paddedSize = labelSize + UI_SIZE_BUTTON_PADDING * element->window->scale;
-		if (isDropDown) paddedSize += ui.glyphWidth * 2;
+		if (isDropDown) paddedSize += ui.activeFont->glyphWidth * 2;
 		int minimumSize = ((element->flags & UI_BUTTON_SMALL) ? 0 
 				: isMenuItem ? UI_SIZE_MENU_ITEM_MINIMUM_WIDTH 
 				: UI_SIZE_BUTTON_MINIMUM_WIDTH) 
@@ -1667,16 +1748,8 @@ int _UIButtonMessage(UIElement *element, UIMessage message, int di, void *dp) {
 	} else if (message == UI_MSG_PAINT) {
 		UIPainter *painter = (UIPainter *) dp;
 
-		bool disabled = element->flags & UI_ELEMENT_DISABLED;
-		bool focused = element == element->window->focused;
-		bool pressed = element == element->window->pressed;
-		bool hovered = element == element->window->hovered;
-		uint32_t color = disabled ? ui.theme.buttonDisabled
-			: (pressed && hovered) ? ui.theme.buttonPressed 
-			: (pressed || hovered) ? ui.theme.buttonHovered 
-			: focused ? ui.theme.selected : ui.theme.buttonNormal;
-		uint32_t textColor = disabled ? ui.theme.textDisabled 
-			: color == ui.theme.selected ? ui.theme.textSelected : ui.theme.text;
+		uint32_t color, textColor;
+		_UIButtonCalculateColors(element, &color, &textColor);
 
 		UIDrawRectangle(painter, element->bounds, color, ui.theme.border, UI_RECT_1(isMenuItem ? 0 : 1));
 
@@ -1734,6 +1807,53 @@ UIButton *UIButtonCreate(UIElement *parent, uint32_t flags, const char *label, p
 	UIButton *button = (UIButton *) UIElementCreate(sizeof(UIButton), parent, flags | UI_ELEMENT_TAB_STOP, _UIButtonMessage, "Button");
 	button->label = UIStringCopy(label, (button->labelBytes = labelBytes));
 	return button;
+}
+
+int _UICheckboxMessage(UIElement *element, UIMessage message, int di, void *dp) {
+	UICheckbox *box = (UICheckbox *) element;
+	
+	if (message == UI_MSG_GET_HEIGHT) {
+		return UI_SIZE_BUTTON_HEIGHT * element->window->scale;
+	} else if (message == UI_MSG_GET_WIDTH) {
+		int labelSize = UIMeasureStringWidth(box->label, box->labelBytes);
+		return (labelSize + UI_SIZE_CHECKBOX_BOX + UI_SIZE_CHECKBOX_GAP) * element->window->scale;
+	} else if (message == UI_MSG_PAINT) {
+		UIPainter *painter = (UIPainter *) dp;
+		uint32_t color, textColor;
+		_UIButtonCalculateColors(element, &color, &textColor);
+		int midY = (element->bounds.t + element->bounds.b) / 2;
+		UIRectangle boxBounds = UI_RECT_4(element->bounds.l, element->bounds.l + UI_SIZE_CHECKBOX_BOX, 
+				midY - UI_SIZE_CHECKBOX_BOX / 2, midY + UI_SIZE_CHECKBOX_BOX / 2);
+		UIDrawRectangle(painter, boxBounds, color, ui.theme.border, UI_RECT_1(1));
+		UIDrawString(painter, UIRectangleAdd(boxBounds, UI_RECT_4(1, 0, 0, 0)), 
+				box->check == UI_CHECK_CHECKED ? "*" : box->check == UI_CHECK_INDETERMINATE ? "-" : " ", -1, 
+				textColor, UI_ALIGN_CENTER, NULL);
+		UIDrawString(painter, UIRectangleAdd(element->bounds, UI_RECT_4(UI_SIZE_CHECKBOX_BOX + UI_SIZE_CHECKBOX_GAP, 0, 0, 0)), 
+				box->label, box->labelBytes, textColor, UI_ALIGN_LEFT, NULL);
+	} else if (message == UI_MSG_UPDATE) {
+		UIElementRepaint(element, NULL);
+	} else if (message == UI_MSG_DESTROY) {
+		UI_FREE(box->label);
+	} else if (message == UI_MSG_KEY_TYPED) {
+		UIKeyTyped *m = (UIKeyTyped *) dp;
+		
+		if (m->textBytes == 1 && m->text[0] == ' ') {
+			UIElementMessage(element, UI_MSG_CLICKED, 0, 0);
+			UIElementRepaint(element, NULL);
+		}
+	} else if (message == UI_MSG_CLICKED) {
+		box->check = (box->check + 1) % ((element->flags & UI_CHECKBOX_ALLOW_INDETERMINATE) ? 3 : 2);
+		UIElementRepaint(element, NULL);
+		if (box->invoke) box->invoke(element->cp);
+	}
+
+	return 0;
+}
+
+UICheckbox *UICheckboxCreate(UIElement *parent, uint32_t flags, const char *label, ptrdiff_t labelBytes) {
+	UICheckbox *box = (UICheckbox *) UIElementCreate(sizeof(UICheckbox), parent, flags | UI_ELEMENT_TAB_STOP, _UICheckboxMessage, "Checkbox");
+	box->label = UIStringCopy(label, (box->labelBytes = labelBytes));
+	return box;
 }
 
 int _UILabelMessage(UIElement *element, UIMessage message, int di, void *dp) {
@@ -1933,6 +2053,19 @@ int _UITabPaneMessage(UIElement *element, UIMessage message, int di, void *dp) {
 			child = child->next;
 			index++;
 		}
+	} else if (message == UI_MSG_GET_HEIGHT) {
+		UIElement *child = element->children;
+		int index = 0;
+		int baseHeight = UI_SIZE_BUTTON_HEIGHT * element->window->scale;
+
+		while (child) {
+			if (tabPane->active == index) {
+				return baseHeight + UIElementMessage(child, UI_MSG_GET_HEIGHT, di, dp);
+			}
+
+			child = child->next;
+			index++;
+		}
 	} else if (message == UI_MSG_DESTROY) {
 		UI_FREE(tabPane->tabs);
 	}
@@ -2050,13 +2183,13 @@ int _UIScrollUpDownMessage(UIElement *element, UIMessage message, int di, void *
 		UIDrawRectangle(painter, element->bounds, color, ui.theme.border, UI_RECT_1(0));
 		
 		if (scrollBar->horizontal) {
-			UIDrawGlyph(painter, isDown ? (element->bounds.r - ui.glyphWidth - 2 * element->window->scale) 
+			UIDrawGlyph(painter, isDown ? (element->bounds.r - ui.activeFont->glyphWidth - 2 * element->window->scale) 
 					: (element->bounds.l + 2 * element->window->scale), 
-				(element->bounds.t + element->bounds.b - ui.glyphHeight) / 2,
+				(element->bounds.t + element->bounds.b - ui.activeFont->glyphHeight) / 2,
 				isDown ? 26 : 27, ui.theme.text);
 		} else {
-			UIDrawGlyph(painter, (element->bounds.l + element->bounds.r - ui.glyphWidth) / 2 + 1, 
-				isDown ? (element->bounds.b - ui.glyphHeight - 2 * element->window->scale) 
+			UIDrawGlyph(painter, (element->bounds.l + element->bounds.r - ui.activeFont->glyphWidth) / 2 + 1, 
+				isDown ? (element->bounds.b - ui.activeFont->glyphHeight - 2 * element->window->scale) 
 					: (element->bounds.t + 2 * element->window->scale), 
 				isDown ? 25 : 24, ui.theme.text);
 		}
@@ -2148,7 +2281,9 @@ int UICodeHitTest(UICode *code, int x, int y) {
 
 	y -= code->e.bounds.t - code->vScroll->position;
 
+	UIFont *previousFont = UIFontActivate(code->font);
 	int lineHeight = UIMeasureStringHeight();
+	UIFontActivate(previousFont);
 
 	if (y < 0 || y >= lineHeight * code->lineCount) {
 		return 0;
@@ -2237,11 +2372,11 @@ int UIDrawStringHighlighted(UIPainter *painter, UIRectangle lineBounds, const ch
 		}
 
 		if (c == '\t') {
-			x += ui.glyphWidth, ti++;
-			while (ti % tabSize) x += ui.glyphWidth, ti++;
+			x += ui.activeFont->glyphWidth, ti++;
+			while (ti % tabSize) x += ui.activeFont->glyphWidth, ti++;
 		} else {
 			UIDrawGlyph(painter, x, y, c, colors[lexState]);
-			x += ui.glyphWidth, ti++;
+			x += ui.activeFont->glyphWidth, ti++;
 		}
 	}
 
@@ -2252,6 +2387,8 @@ int _UICodeMessage(UIElement *element, UIMessage message, int di, void *dp) {
 	UICode *code = (UICode *) element;
 	
 	if (message == UI_MSG_LAYOUT) {
+		UIFont *previousFont = UIFontActivate(code->font);
+
 		if (code->moveScrollToFocusNextLayout) {
 			code->vScroll->position = (code->focused + 0.5) * UIMeasureStringHeight() - UI_RECT_HEIGHT(code->e.bounds) / 2;
 		}
@@ -2260,8 +2397,11 @@ int _UICodeMessage(UIElement *element, UIMessage message, int di, void *dp) {
 		scrollBarBounds.l = scrollBarBounds.r - UI_SIZE_SCROLL_BAR * code->e.window->scale;
 		code->vScroll->maximum = code->lineCount * UIMeasureStringHeight();
 		code->vScroll->page = UI_RECT_HEIGHT(element->bounds);
+		UIFontActivate(previousFont);
 		UIElementMove(&code->vScroll->e, scrollBarBounds, true);
 	} else if (message == UI_MSG_PAINT) {
+		UIFont *previousFont = UIFontActivate(code->font);
+
 		UIPainter *painter = (UIPainter *) dp;
 		UIRectangle lineBounds = element->bounds;
 		lineBounds.r -= UI_SIZE_SCROLL_BAR * code->e.window->scale;
@@ -2318,6 +2458,8 @@ int _UICodeMessage(UIElement *element, UIMessage message, int di, void *dp) {
 
 			lineBounds.t += lineHeight;
 		}
+
+		UIFontActivate(previousFont);
 	} else if (message == UI_MSG_SCROLLED) {
 		code->moveScrollToFocusNextLayout = false;
 		UIElementRefresh(element);
@@ -2341,6 +2483,8 @@ void UICodeFocusLine(UICode *code, int index) {
 }
 
 void UICodeInsertContent(UICode *code, const char *content, ptrdiff_t byteCount, bool replace) {
+	UIFont *previousFont = UIFontActivate(code->font);
+
 	if (byteCount == -1) {
 		byteCount = _UIStringLength(content);
 	}
@@ -2394,10 +2538,13 @@ void UICodeInsertContent(UICode *code, const char *content, ptrdiff_t byteCount,
 	if (!replace) {
 		code->vScroll->position = code->lineCount * UIMeasureStringHeight();
 	}
+
+	UIFontActivate(previousFont);
 }
 
 UICode *UICodeCreate(UIElement *parent, uint32_t flags) {
 	UICode *code = (UICode *) UIElementCreate(sizeof(UICode), parent, flags, _UICodeMessage, "Code");
+	code->font = ui.activeFont;
 	code->vScroll = UIScrollBarCreate(&code->e, 0);
 	code->focused = -1;
 	code->tabSize = 4;
@@ -2784,7 +2931,10 @@ int _UITextboxMessage(UIElement *element, UIMessage message, int di, void *dp) {
 		UIKeyTyped *m = (UIKeyTyped *) dp;
 		bool handled = true;
 
-		if (m->code == UI_KEYCODE_BACKSPACE || m->code == UI_KEYCODE_DELETE) {
+		if (textbox->rejectNextKey) {
+			textbox->rejectNextKey = false;
+			handled = false;
+		} else if (m->code == UI_KEYCODE_BACKSPACE || m->code == UI_KEYCODE_DELETE) {
 			if (textbox->carets[0] == textbox->carets[1]) {
 				UITextboxMoveCaret(textbox, m->code == UI_KEYCODE_BACKSPACE, element->window->ctrl);
 			}
@@ -2947,9 +3097,9 @@ int _UIColorPickerMessage(UIElement *element, UIMessage message, int di, void *d
 	bool hasOpacity = element->flags & UI_COLOR_PICKER_HAS_OPACITY;
 
 	if (message == UI_MSG_GET_WIDTH) {
-		return (hasOpacity ? 240 : 200) * element->window->scale;
+		return (hasOpacity ? 280 : 240) * element->window->scale;
 	} else if (message == UI_MSG_GET_HEIGHT) {
-		return 160 * element->window->scale;
+		return 200 * element->window->scale;
 	} else if (message == UI_MSG_LAYOUT) {
 		UIRectangle bounds = element->bounds;
 
@@ -3386,6 +3536,55 @@ int _UIDialogWrapperMessage(UIElement *element, UIMessage message, int di, void 
 		UIRectangle bounds = UIRectangleAdd(element->children->bounds, UI_RECT_1I(-1));
 		UIDrawBorder((UIPainter *) dp, bounds, ui.theme.border, UI_RECT_1(1));
 		UIDrawBorder((UIPainter *) dp, UIRectangleAdd(bounds, UI_RECT_1(1)), ui.theme.border, UI_RECT_1(1));
+	} else if (message == UI_MSG_KEY_TYPED) {
+		UIKeyTyped *typed = (UIKeyTyped *) dp;
+
+		if (element->window->ctrl) return 0;
+		if (element->window->shift) return 0;
+
+		char c0 = 0, c1 = 0;
+
+		if (typed->textBytes == 1 && typed->text[0] >= 'a' && typed->text[0] <= 'z') {
+			c0 = typed->text[0], c1 = typed->text[0] - 'a' + 'A';
+		} else {
+			return 0;
+		}
+
+		UIElement *row = element->children->children;
+		UIElement *target = nullptr;
+		bool duplicate = false;
+
+		while (row) {
+			UIElement *item = row->children;
+
+			while (item) {
+				if (item->messageClass == _UIButtonMessage) {
+					UIButton *button = (UIButton *) item;
+
+					if (button->label && button->labelBytes && (button->label[0] == c0 || button->label[0] == c1)) {
+						if (!target) {
+							target = &button->e;
+						} else {
+							duplicate = true;
+						}
+					}
+				}
+
+				item = item->next;
+			}
+
+			row = row->next;
+		}
+
+		if (target) {
+			if (duplicate) {
+				UIElementFocus(target);
+			} else {
+				UIElementMessage(target, UI_MSG_CLICKED, 0, 0);
+			}
+
+			return 1;
+		}
 	}
 
 	return 0;
@@ -3411,7 +3610,7 @@ int _UIDialogTextboxMessage(UIElement *element, UIMessage message, int di, void 
 }
 
 const char *UIDialogShow(UIWindow *window, uint32_t flags, const char *format, ...) {
-	// TODO Enter, escape, access keys.
+	// TODO Enter and escape.
 
 	// Create the dialog wrapper and panel.
 
@@ -3492,7 +3691,7 @@ const char *UIDialogShow(UIWindow *window, uint32_t flags, const char *format, .
 	window->dialog = NULL;
 	UIElementRefresh(&window->e);
 	if (window->dialogOldFocus) UIElementFocus(window->dialogOldFocus);
-	return ui.dialogResult;
+	return ui.dialogResult ? ui.dialogResult : "";
 }
 
 bool _UIMenusClose() {
@@ -3511,6 +3710,7 @@ bool _UIMenusClose() {
 	return anyClosed;
 }
 
+#ifndef UI_ESSENCE
 int _UIMenuItemMessage(UIElement *element, UIMessage message, int di, void *dp) {
 	if (message == UI_MSG_CLICKED) {
 		_UIMenusClose();
@@ -3555,11 +3755,12 @@ int _UIMenuMessage(UIElement *element, UIMessage message, int di, void *dp) {
 		UIElement *child = element->children;
 		int position = element->bounds.t + 2 - menu->vScroll->position;
 		int totalHeight = 0;
+		int scrollBarSize = (menu->e.flags & UI_MENU_NO_SCROLL) ? 0 : UI_SIZE_SCROLL_BAR;
 
 		while (child) {
 			if (~child->flags & UI_ELEMENT_NON_CLIENT) {
 				int height = UIElementMessage(child, UI_MSG_GET_HEIGHT, 0, 0);
-				UIElementMove(child, UI_RECT_4(element->bounds.l + 2, element->bounds.r - UI_SIZE_SCROLL_BAR - 2, 
+				UIElementMove(child, UI_RECT_4(element->bounds.l + 2, element->bounds.r - scrollBarSize - 2, 
 							position, position + height), false);
 				position += height;
 				totalHeight += height;
@@ -3569,7 +3770,7 @@ int _UIMenuMessage(UIElement *element, UIMessage message, int di, void *dp) {
 		}
 
 		UIRectangle scrollBarBounds = element->bounds;
-		scrollBarBounds.l = scrollBarBounds.r - UI_SIZE_SCROLL_BAR * element->window->scale;
+		scrollBarBounds.l = scrollBarBounds.r - scrollBarSize * element->window->scale;
 		menu->vScroll->maximum = totalHeight;
 		menu->vScroll->page = UI_RECT_HEIGHT(element->bounds);
 		UIElementMove(&menu->vScroll->e, scrollBarBounds, true);
@@ -3624,6 +3825,7 @@ UIMenu *UIMenuCreate(UIElement *parent, uint32_t flags) {
 
 	return menu;
 }
+#endif
 
 UIRectangle UIElementScreenBounds(UIElement *element) {
 	int x = 0, y = 0;
@@ -3864,7 +4066,9 @@ UIElement *_UIElementPreviousSibling(UIElement *element) {
 	return sibling;
 }
 
-void _UIWindowInputEvent(UIWindow *window, UIMessage message, int di, void *dp) {
+bool _UIWindowInputEvent(UIWindow *window, UIMessage message, int di, void *dp) {
+	bool handled = true;
+
 	if (window->pressed) {
 		if (message == UI_MSG_MOUSE_MOVE) {
 			UIElementMessage(window->pressed, UI_MSG_MOUSE_DRAG, di, dp);
@@ -3942,7 +4146,7 @@ void _UIWindowInputEvent(UIWindow *window, UIMessage message, int di, void *dp) 
 				element = element->parent;
 			}
 		} else if (message == UI_MSG_KEY_TYPED) {
-			bool handled = false;
+			handled = false;
 
 			if (window->focused) {
 				UIElement *element = window->focused;
@@ -3992,6 +4196,8 @@ void _UIWindowInputEvent(UIWindow *window, UIMessage message, int di, void *dp) 
 					if (~element->flags & UI_ELEMENT_WINDOW) {
 						UIElementFocus(element);
 					}
+
+					handled = true;
 				} else if (!window->dialog) {
 					for (intptr_t i = window->shortcutCount - 1; i >= 0; i--) {
 						UIShortcut *shortcut = window->shortcuts + i;
@@ -3999,6 +4205,7 @@ void _UIWindowInputEvent(UIWindow *window, UIMessage message, int di, void *dp) 
 						if (shortcut->code == m->code && shortcut->ctrl == window->ctrl 
 								&& shortcut->shift == window->shift && shortcut->alt == window->alt) {
 							shortcut->invoke(shortcut->cp);
+							handled = true;
 							break;
 						}
 					}
@@ -4017,6 +4224,33 @@ void _UIWindowInputEvent(UIWindow *window, UIMessage message, int di, void *dp) 
 	}
 
 	end: _UIUpdate();
+	return handled;
+}
+
+UIFont *UIFontCreate(const char *cPath, uint32_t size) {
+	UIFont *font = (UIFont *) UI_CALLOC(sizeof(UIFont));
+
+#ifdef UI_FREETYPE
+	if (cPath) {
+		FT_New_Face(ui.ft, cPath, 0, &font->font); 
+		FT_Set_Char_Size(font->font, 0, size * 64, 100, 100);
+		FT_Load_Char(font->font, 'a', FT_LOAD_DEFAULT);
+		font->glyphWidth = font->font->glyph->advance.x / 64;
+		font->glyphHeight = (font->font->size->metrics.ascender - font->font->size->metrics.descender) / 64;
+		font->isFreeType = true;
+		return font;
+	}
+#endif
+	
+	font->glyphWidth = 9;
+	font->glyphHeight = 16;
+	return font;
+}
+
+UIFont *UIFontActivate(UIFont *font) {
+	UIFont *previous = ui.activeFont;
+	ui.activeFont = font;
+	return previous;
 }
 
 void _UIInitialiseCommon() {
@@ -4024,14 +4258,9 @@ void _UIInitialiseCommon() {
 
 #ifdef UI_FREETYPE
 	FT_Init_FreeType(&ui.ft);
-	FT_New_Face(ui.ft, _UI_TO_STRING_2(UI_FONT_PATH), 0, &ui.font); 
-	FT_Set_Char_Size(ui.font, 0, UI_FONT_SIZE * 64, 100, 100);
-	FT_Load_Char(ui.font, 'a', FT_LOAD_DEFAULT);
-	ui.glyphWidth = ui.font->glyph->advance.x / 64;
-	ui.glyphHeight = (ui.font->size->metrics.ascender - ui.font->size->metrics.descender) / 64;
+	UIFontActivate(UIFontCreate(_UI_TO_STRING_2(UI_FONT_PATH), 11));
 #else
-	ui.glyphWidth = 9;
-	ui.glyphHeight = 16;
+	UIFontActivate(UIFontCreate(0, 0));
 #endif
 }
 
@@ -4257,6 +4486,11 @@ UIWindow *UIWindowCreate(UIWindow *owner, uint32_t flags, const char *cTitle, in
 	XSelectInput(ui.display, window->window, SubstructureNotifyMask | ExposureMask | PointerMotionMask 
 		| ButtonPressMask | ButtonReleaseMask | KeyPressMask | KeyReleaseMask | StructureNotifyMask
 		| EnterWindowMask | LeaveWindowMask | ButtonMotionMask | KeymapStateMask | FocusChangeMask);
+
+	if (flags & UI_WINDOW_MAXIMIZE) {
+		Atom atoms[2] = { XInternAtom(ui.display, "_NET_WM_STATE_MAXIMIZED_HORZ", 0), XInternAtom(ui.display, "_NET_WM_STATE_MAXIMIZED_VERT", 0) };
+		XChangeProperty(ui.display, window->window, XInternAtom(ui.display, "_NET_WM_STATE", 0), XA_ATOM, 32, PropModeReplace, (unsigned char *) atoms, 2);
+	}
 
 	if (~flags & UI_WINDOW_MENU) {
 		XMapRaised(ui.display, window->window);
@@ -4516,6 +4750,22 @@ bool _UIProcessEvent(XEvent *event) {
 				window->alt = true;
 				window->altCode = event->xkey.keycode;
 				_UIWindowInputEvent(window, UI_MSG_MOUSE_MOVE, 0, 0);
+			} else if (symbol == XK_KP_Left) {
+				m.code = UI_KEYCODE_LEFT;
+			} else if (symbol == XK_KP_Right) {
+				m.code = UI_KEYCODE_RIGHT;
+			} else if (symbol == XK_KP_Up) {
+				m.code = UI_KEYCODE_UP;
+			} else if (symbol == XK_KP_Down) {
+				m.code = UI_KEYCODE_DOWN;
+			} else if (symbol == XK_KP_Home) {
+				m.code = UI_KEYCODE_HOME;
+			} else if (symbol == XK_KP_End) {
+				m.code = UI_KEYCODE_END;
+			} else if (symbol == XK_KP_Enter) {
+				m.code = UI_KEYCODE_ENTER;
+			} else if (symbol == XK_KP_Delete) {
+				m.code = UI_KEYCODE_DELETE;
 			}
 
 			_UIWindowInputEvent(window, UI_MSG_KEY_TYPED, 0, &m);
@@ -4538,6 +4788,7 @@ bool _UIProcessEvent(XEvent *event) {
 		UIWindow *window = _UIFindWindow(event->xfocus.window);
 		if (!window) return false;
 		window->ctrl = window->shift = window->alt = false;
+		UIElementMessage(&window->e, UI_MSG_WINDOW_ACTIVATE, 0, 0);
 	} else if (event->type == ClientMessage && event->xclient.message_type == ui.dndEnterID) {
 		UIWindow *window = _UIFindWindow(event->xclient.window);
 		if (!window) return false;
@@ -4591,7 +4842,7 @@ bool _UIProcessEvent(XEvent *event) {
 				char *copy = (char *) UI_MALLOC(count);
 				int fileCount = 0;
 
-				for (int i = 0; i < count; i++) {
+				for (int i = 0; i < (int) count; i++) {
 					copy[i] = data[i];
 
 					if (i && data[i - 1] == '\r' && data[i] == '\n') {
@@ -4602,16 +4853,24 @@ bool _UIProcessEvent(XEvent *event) {
 				char **files = (char **) UI_MALLOC(sizeof(char *) * fileCount);
 				fileCount = 0;
 
-				for (int i = 0; i < count; i++) {
+				for (int i = 0; i < (int) count; i++) {
 					char *s = copy + i;
-					while (!(i && data[i - 1] == '\r' && data[i] == '\n' && i < count)) i++;
+					while (!(i && data[i - 1] == '\r' && data[i] == '\n' && i < (int) count)) i++;
 					copy[i - 1] = 0;
+
+					for (int j = 0; s[j]; j++) {
+						if (s[j] == '%' && s[j + 1] && s[j + 2]) {
+							char n[3];
+							n[0] = s[j + 1], n[1] = s[j + 2], n[2] = 0;
+							s[j] = strtol(n, NULL, 16);
+							if (!s[j]) break;
+							memmove(s + j + 1, s + j + 3, strlen(s) - j - 2);
+						}
+					}
 
 					if (s[0] == 'f' && s[1] == 'i' && s[2] == 'l' && s[3] == 'e' && s[4] == ':' && s[5] == '/' && s[6] == '/') {
 						files[fileCount++] = s + 7;
 					}
-
-					// TODO Replace % codes in the URL.
 				}
 
 				UIElementMessage(&window->e, UI_MSG_WINDOW_DROP_FILES, fileCount, files);
@@ -4847,9 +5106,27 @@ LRESULT CALLBACK _UIWindowProcedure(HWND hwnd, UINT message, WPARAM wParam, LPAR
 
 		if (message == WM_SETFOCUS) {
 			_UIInspectorSetFocusedWindow(window);
+			UIElementMessage(&window->e, UI_MSG_WINDOW_ACTIVATE, 0, 0);
 		}
 	} else if (message == WM_MOUSEACTIVATE && (window->e.flags & UI_WINDOW_MENU)) {
 		return MA_NOACTIVATE;
+	} else if (message == WM_DROPFILES) {
+		HDROP drop = (HDROP) wParam;
+		int count = DragQueryFile(drop, 0xFFFFFFFF, NULL, 0);
+		char **files = (char **) UI_MALLOC(sizeof(char *) * count);
+		
+		for (int i = 0; i < count; i++) {
+			int length = DragQueryFile(drop, i, NULL, 0);
+			files[i] = (char *) UI_MALLOC(length + 1);
+			files[i][length] = 0;
+			DragQueryFile(drop, i, files[i], length + 1);
+		}
+		
+		UIElementMessage(&window->e, UI_MSG_WINDOW_DROP_FILES, count, files);
+		for (int i = 0; i < count; i++) UI_FREE(files[i]);		
+		UI_FREE(files);
+		DragFinish(drop);
+		_UIUpdate();
 	} else if (message == WM_APP + 1) {
 		UIElementMessage(&window->e, (UIMessage) wParam, 0, (void *) lParam);
 		_UIUpdate();
@@ -4945,7 +5222,7 @@ UIWindow *UIWindowCreate(UIWindow *owner, uint32_t flags, const char *cTitle, in
 		window->hwnd = CreateWindowEx(WS_EX_TOPMOST | WS_EX_NOACTIVATE, "shadow", 0, WS_POPUP, 
 			0, 0, 0, 0, owner->hwnd, NULL, NULL, NULL);
 	} else {
-		window->hwnd = CreateWindow("normal", cTitle, WS_OVERLAPPEDWINDOW, 
+		window->hwnd = CreateWindowEx(WS_EX_ACCEPTFILES, "normal", cTitle, WS_OVERLAPPEDWINDOW, 
 			CW_USEDEFAULT, CW_USEDEFAULT, width ? width : CW_USEDEFAULT, height ? height : CW_USEDEFAULT,
 			owner ? owner->hwnd : NULL, NULL, NULL, NULL);
 	}
@@ -5055,14 +5332,32 @@ bool _UIMessageLoopSingle(int *result) {
 	if (ui.animating) {
 		// TODO.
 	} else {
-		EsMessageReceive();
+		_UIMessageProcess(EsMessageReceive());
 	}
 
 	return true;
 }
 
+UIMenu *UIMenuCreate(UIElement *parent, uint32_t flags) {
+	ui.menuIndex = 0;
+	return EsMenuCreate(parent->window->window, ES_MENU_AT_CURSOR);
+}
+
+void _UIMenuItemCallback(EsMenu *menu, EsGeneric context) {
+	((void (*)(void *)) ui.menuData[context.u * 2 + 0])(ui.menuData[context.u * 2 + 1]);
+}
+
+void UIMenuAddItem(UIMenu *menu, uint32_t flags, const char *label, ptrdiff_t labelBytes, void (*invoke)(void *cp), void *cp) {
+	EsAssert(ui.menuIndex < 128);
+	ui.menuData[ui.menuIndex * 2 + 0] = (void *) invoke;
+	ui.menuData[ui.menuIndex * 2 + 1] = cp;
+	EsMenuAddItem(menu, (flags & UI_BUTTON_CHECKED) ? ES_MENU_ITEM_CHECKED : ES_FLAGS_DEFAULT, 
+			label, labelBytes, _UIMenuItemCallback, ui.menuIndex);
+	ui.menuIndex++;
+}
+
 void UIMenuShow(UIMenu *menu) {
-	// TODO.
+	EsMenuShow(menu);
 }
 
 int _UIWindowCanvasMessage(EsElement *element, EsMessage *message) {
@@ -5080,11 +5375,17 @@ int _UIWindowCanvasMessage(EsElement *element, EsMessage *message) {
 		window->e.clip = UI_RECT_2S(window->width, window->height);
 		UIElementMessage(&window->e, UI_MSG_LAYOUT, 0, 0);
 		_UIUpdate();
+	} else if (message->type == ES_MSG_SCROLL_WHEEL) {
+		_UIWindowInputEvent(window, UI_MSG_MOUSE_WHEEL, -message->scrollWheel.dy, 0);
 	} else if (message->type == ES_MSG_MOUSE_MOVED || message->type == ES_MSG_HOVERED_END
 			|| message->type == ES_MSG_MOUSE_LEFT_DRAG || message->type == ES_MSG_MOUSE_RIGHT_DRAG || message->type == ES_MSG_MOUSE_MIDDLE_DRAG) {
 		EsPoint point = EsMouseGetPosition(element); 
 		window->cursorX = point.x, window->cursorY = point.y;
 		_UIWindowInputEvent(window, UI_MSG_MOUSE_MOVE, 0, 0);
+	} else if (message->type == ES_MSG_KEY_UP) {
+		window->ctrl = EsKeyboardIsCtrlHeld();
+		window->shift = EsKeyboardIsShiftHeld();
+		window->alt = EsKeyboardIsAltHeld();
 	} else if (message->type == ES_MSG_KEY_DOWN) {
 		window->ctrl = EsKeyboardIsCtrlHeld();
 		window->shift = EsKeyboardIsShiftHeld();
@@ -5094,7 +5395,7 @@ int _UIWindowCanvasMessage(EsElement *element, EsMessage *message) {
 		m.text = c;
 		m.textBytes = EsMessageGetInputText(message, c);
 		m.code = message->keyboard.scancode;
-		_UIWindowInputEvent(window, UI_MSG_KEY_TYPED, 0, &m);
+		return _UIWindowInputEvent(window, UI_MSG_KEY_TYPED, 0, &m) ? ES_HANDLED : 0;
 	} else if (message->type == ES_MSG_MOUSE_LEFT_CLICK) {
 		_UIInspectorSetFocusedWindow(window);
 	} else if (message->type == ES_MSG_USER_START) {
