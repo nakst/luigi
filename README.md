@@ -370,3 +370,7 @@ UI_MSG_CODE_GET_MARGIN_COLOR, // di = line index (starts at 1); return color
 UI_MSG_CODE_GET_LINE_HINT, // dp = pointer to UITableGetItem (line in index field); return string length
 UI_MSG_WINDOW_CLOSE, // return 1 to prevent default (process exit for UIWindow; close for UIMDIChild)
 ```
+
+## Is it lightweight and blazing fast? 🚀
+
+No, this would require a rewrite in JavaScript, which I do not currently plan to do.
