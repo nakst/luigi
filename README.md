@@ -28,11 +28,12 @@ If you want to use FreeType for font rendering, pass the additional arguments to
 
 ## Projects made with luigi
 
-Designer, https://gitlab.com/nakst/essence/-/tree/master/util/designer
+Designer, https://gitlab.com/nakst/essence/-/blob/master/util/designer2.cpp
 ![Screenshot of Designer, showing a list of layers, sequences, keyframes, properties, preview settings, and a preview of a checkbox being edited.](https://raw.githubusercontent.com/nakst/cdn/main/designer.png)
 
 GDB frontend, https://github.com/nakst/gf/
 ![Screenshot of the debugger's interface, showing the source view, breakpoints list, call stack and command prompt.](https://raw.githubusercontent.com/nakst/cdn/main/gf1.png)
+![Screenshot of the builtin profiler](https://raw.githubusercontent.com/nakst/cdn/main/unknown2.png)
 
 ## Documentation
 
