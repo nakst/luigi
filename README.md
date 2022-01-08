@@ -35,7 +35,7 @@ GDB frontend, https://github.com/nakst/gf/
 ![Screenshot of the debugger's interface, showing the source view, breakpoints list, call stack and command prompt.](https://raw.githubusercontent.com/nakst/cdn/main/gf1.png)
 ![Screenshot of the builtin profiler](https://raw.githubusercontent.com/nakst/cdn/main/unknown2.png)
 
-Various utilities applications
+Various utility applications:
 ![Screenshot of a font editor, directory size viewer, image viewer, configuration editor, and a unit converter.](https://raw.githubusercontent.com/nakst/cdn/main/utils.jpg)
 
 ## Documentation
