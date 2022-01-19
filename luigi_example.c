@@ -12,23 +12,17 @@ UILabel *label;
 const char *themeItems[] = {
 	"panel1", 
 	"panel2",
+	"selected",
+	"border",
 	"text", 
 	"textDisabled", 
-	"border",
+	"textSelected", 
 	"buttonNormal", 
 	"buttonHovered", 
 	"buttonPressed", 
-	"buttonFocused",
 	"buttonDisabled",
 	"textboxNormal", 
-	"textboxText", 
 	"textboxFocused", 
-	"textboxSelected", 
-	"textboxSelectedText",
-	"scrollGlyph", 
-	"scrollThumbNormal", 
-	"scrollThumbHovered", 
-	"scrollThumbPressed",
 	"codeFocused", 
 	"codeBackground", 
 	"codeDefault", 
@@ -37,11 +31,6 @@ const char *themeItems[] = {
 	"codeNumber", 
 	"codeOperator", 
 	"codePreprocessor",
-	"gaugeFilled",
-	"tableSelected", 
-	"tableSelectedText", 
-	"tableHovered", 
-	"tableHoveredText",
 };
 
 UIColorPicker *themeEditorColorPicker;
@@ -56,11 +45,11 @@ int ThemeEditorTableMessage(UIElement *element, UIMessage message, int di, void 
 		if (m->column == 0) {
 			return snprintf(m->buffer, m->bufferBytes, "%s", themeItems[m->index]);
 		} else {
-			return snprintf(m->buffer, m->bufferBytes, "#%.6x", ui.theme.colors[m->index]);
+			return snprintf(m->buffer, m->bufferBytes, "#%.6x", ((uint32_t *) &ui.theme)[m->index]);
 		}
 	} else if (message == UI_MSG_CLICKED) {
 		themeEditorSelectedColor = UITableHitTest((UITable *) element, element->window->cursorX, element->window->cursorY);
-		UIColorToHSV(ui.theme.colors[themeEditorSelectedColor], 
+		UIColorToHSV(((uint32_t *) &ui.theme)[themeEditorSelectedColor], 
 			&themeEditorColorPicker->hue, &themeEditorColorPicker->saturation, &themeEditorColorPicker->value);
 		UIElementRepaint(&themeEditorColorPicker->e, NULL);
 	}
@@ -72,7 +61,7 @@ int ThemeEditorColorPickerMessage(UIElement *element, UIMessage message, int di,
 	if (message == UI_MSG_VALUE_CHANGED) {
 		if (themeEditorSelectedColor == -1) return 0;
 		UIColorToRGB(themeEditorColorPicker->hue, themeEditorColorPicker->saturation, themeEditorColorPicker->value,
-			&ui.theme.colors[themeEditorSelectedColor]);
+			&((uint32_t *) &ui.theme)[themeEditorSelectedColor]);
 		UIElementRepaint(&window->e, NULL);
 		UIElementRepaint(&element->window->e, NULL);
 	}
