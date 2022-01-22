@@ -23,7 +23,13 @@ gcc -O2 luigi_example.c -lX11 -lm -o luigi
 If you want to use FreeType for font rendering, pass the additional arguments to `gcc`:
 
 ```
--lfreetype -D UI_FREETYPE -I <path to freetype headers> -D UI_FONT_PATH=<path to font> -D UI_FONT_SIZE=<font size, in pt>
+-lfreetype -D UI_FREETYPE -I <path to freetype headers>
+```
+
+Then add, after the call to `UIInitialise`,
+
+```c
+UIFontActivate(UIFontCreate("font_path.ttf", 11 /* font size */));
 ```
 
 ## Projects made with luigi

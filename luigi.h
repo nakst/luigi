@@ -514,7 +514,7 @@ typedef struct UITable {
 	UIScrollBar *vScroll;
 	int itemCount;
 	char *columns;
-	int *columnWidths, columnCount;
+	int *columnWidths, columnCount, columnHighlight;
 } UITable;
 
 typedef struct UITextbox {
@@ -633,6 +633,7 @@ void UITextboxMoveCaret(UITextbox *textbox, bool backward, bool word);
 
 UITable *UITableCreate(UIElement *parent, uint32_t flags, const char *columns /* separate with \t, terminate with \0 */);
 int UITableHitTest(UITable *table, int x, int y); // Returns item index. Returns -1 if not on an item.
+int UITableHeaderHitTest(UITable *table, int x, int y); // Returns column index or -1.
 bool UITableEnsureVisible(UITable *table, int index); // Returns false if the item was already visible.
 void UITableResizeColumns(UITable *table);
 
@@ -665,7 +666,7 @@ void UIElementRefresh(UIElement *element);
 void UIElementRepaint(UIElement *element, UIRectangle *region);
 void UIElementMove(UIElement *element, UIRectangle bounds, bool alwaysLayout);
 int UIElementMessage(UIElement *element, UIMessage message, int di, void *dp);
-void UIElementChangeParent(UIElement *element, UIElement *newParent, bool insertAtStart);
+void UIElementChangeParent(UIElement *element, UIElement *newParent, UIElement *insertBefore); // Set insertBefore to null to insert at the end.
 
 UIElement *UIParentPush(UIElement *element);
 UIElement *UIParentPop();
@@ -1366,7 +1367,6 @@ void UIDrawString(UIPainter *painter, UIRectangle r, const char *string, ptrdiff
 		}
 	}
 
-
 	for (; j < bytes; j++) {
 		char c = *string++;
 		uint32_t colorText = color;
@@ -1444,7 +1444,7 @@ int UIElementMessage(UIElement *element, UIMessage message, int di, void *dp) {
 	}
 }
 
-void UIElementChangeParent(UIElement *element, UIElement *newParent, bool insertAtStart) {
+void UIElementChangeParent(UIElement *element, UIElement *newParent, UIElement *insertBefore) {
 	UIElement **link = &element->parent->children;
 
 	while (true) {
@@ -1456,20 +1456,15 @@ void UIElementChangeParent(UIElement *element, UIElement *newParent, bool insert
 		}
 	}
 
-	if (insertAtStart) {
-		element->next = newParent->children;
-		newParent->children = element;
-	} else {
-		link = &newParent->children;
-		element->next = NULL;
+	link = &newParent->children;
+	element->next = insertBefore;
 
-		while (true) {
-			if (!(*link)) {
-				*link = element;
-				break;
-			} else {
-				link = &(*link)->next;
-			}
+	while (true) {
+		if ((*link) == insertBefore) {
+			*link = element;
+			break;
+		} else {
+			link = &(*link)->next;
 		}
 	}
 
@@ -2633,6 +2628,26 @@ int UITableHitTest(UITable *table, int x, int y) {
 	return y / rowHeight;
 }
 
+int UITableHeaderHitTest(UITable *table, int x, int y) {
+	if (!table->columnCount) return -1;
+	UIRectangle header = table->e.bounds;
+	header.b = header.t + UI_SIZE_TABLE_HEADER * table->e.window->scale;
+	header.l += UI_SIZE_TABLE_COLUMN_GAP * table->e.window->scale;
+	int position = 0, index = 0;
+
+	while (true) {
+		int end = position;
+		for (; table->columns[end] != '\t' && table->columns[end]; end++);
+		header.r = header.l + table->columnWidths[index];
+		if (UIRectangleContains(header, x, y)) return index;
+		header.l += table->columnWidths[index] + UI_SIZE_TABLE_COLUMN_GAP * table->e.window->scale;
+		if (table->columns[end] != '\t') break;
+		position = end + 1, index++;
+	}
+
+	return -1;
+}
+
 bool UITableEnsureVisible(UITable *table, int index) {
 	int rowHeight = UI_SIZE_TABLE_ROW * table->e.window->scale;
 	int y = index * rowHeight;
@@ -2768,6 +2783,7 @@ int _UITableMessage(UIElement *element, UIMessage message, int di, void *dp) {
 
 				header.r = header.l + table->columnWidths[index];
 				UIDrawString(painter, header, table->columns + position, end - position, ui.theme.text, UI_ALIGN_LEFT, NULL);
+				if (index == table->columnHighlight) UIDrawInvert(painter, header);
 				header.l += table->columnWidths[index] + UI_SIZE_TABLE_COLUMN_GAP * table->e.window->scale;
 
 				if (table->columns[end] == '\t') {
@@ -2802,6 +2818,7 @@ UITable *UITableCreate(UIElement *parent, uint32_t flags, const char *columns) {
 	UITable *table = (UITable *) UIElementCreate(sizeof(UITable), parent, flags, _UITableMessage, "Table");
 	table->vScroll = UIScrollBarCreate(&table->e, 0);
 	table->columns = UIStringCopy(columns, -1);
+	table->columnHighlight = -1;
 	return table;
 }
 
@@ -4232,13 +4249,14 @@ UIFont *UIFontCreate(const char *cPath, uint32_t size) {
 
 #ifdef UI_FREETYPE
 	if (cPath) {
-		FT_New_Face(ui.ft, cPath, 0, &font->font); 
-		FT_Set_Char_Size(font->font, 0, size * 64, 100, 100);
-		FT_Load_Char(font->font, 'a', FT_LOAD_DEFAULT);
-		font->glyphWidth = font->font->glyph->advance.x / 64;
-		font->glyphHeight = (font->font->size->metrics.ascender - font->font->size->metrics.descender) / 64;
-		font->isFreeType = true;
-		return font;
+		if (!FT_New_Face(ui.ft, cPath, 0, &font->font)) {
+			FT_Set_Char_Size(font->font, 0, size * 64, 100, 100);
+			FT_Load_Char(font->font, 'a', FT_LOAD_DEFAULT);
+			font->glyphWidth = font->font->glyph->advance.x / 64;
+			font->glyphHeight = (font->font->size->metrics.ascender - font->font->size->metrics.descender) / 64;
+			font->isFreeType = true;
+			return font;
+		}
 	}
 #endif
 	
@@ -4254,14 +4272,12 @@ UIFont *UIFontActivate(UIFont *font) {
 }
 
 void _UIInitialiseCommon() {
-	ui.theme = _uiThemeDark;
-
 #ifdef UI_FREETYPE
 	FT_Init_FreeType(&ui.ft);
-	UIFontActivate(UIFontCreate(_UI_TO_STRING_2(UI_FONT_PATH), 11));
-#else
-	UIFontActivate(UIFontCreate(0, 0));
 #endif
+
+	ui.theme = _uiThemeDark;
+	UIFontActivate(UIFontCreate(0, 0));
 }
 
 void _UIWindowAdd(UIWindow *window) {
