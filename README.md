@@ -2,7 +2,19 @@
 
 A barebones single-header GUI library for Win32, X11 and Essence. 
 
-## Building example
+## Projects made with luigi
+
+Designer, https://gitlab.com/nakst/essence/-/blob/master/util/designer2.cpp
+![Screenshot of Designer, showing a list of layers, sequences, keyframes, properties, preview settings, and a preview of a checkbox being edited.](https://raw.githubusercontent.com/nakst/cdn/main/designer.png)
+
+GDB frontend, https://github.com/nakst/gf/
+![Screenshot of the debugger's interface, showing the source view, breakpoints list, call stack and command prompt.](https://raw.githubusercontent.com/nakst/cdn/main/gf1.png)
+![Screenshot of the builtin profiler](https://raw.githubusercontent.com/nakst/cdn/main/unknown2.png)
+
+Various utility applications:
+![Screenshot of a font editor, directory size viewer, image viewer, configuration editor, and a unit converter.](https://raw.githubusercontent.com/nakst/cdn/main/utils.jpg)
+
+## Building the example
 
 ### Windows
 
@@ -20,6 +32,8 @@ Update `luigi_example.c` to `#define UI_LINUX` at the top of the file, and then 
 gcc -O2 luigi_example.c -lX11 -lm -o luigi
 ```
 
+## Linking with FreeType
+
 If you want to use FreeType for font rendering, pass the additional arguments to `gcc`:
 
 ```
@@ -31,18 +45,6 @@ Then add, after the call to `UIInitialise`,
 ```c
 UIFontActivate(UIFontCreate("font_path.ttf", 11 /* font size */));
 ```
-
-## Projects made with luigi
-
-Designer, https://gitlab.com/nakst/essence/-/blob/master/util/designer2.cpp
-![Screenshot of Designer, showing a list of layers, sequences, keyframes, properties, preview settings, and a preview of a checkbox being edited.](https://raw.githubusercontent.com/nakst/cdn/main/designer.png)
-
-GDB frontend, https://github.com/nakst/gf/
-![Screenshot of the debugger's interface, showing the source view, breakpoints list, call stack and command prompt.](https://raw.githubusercontent.com/nakst/cdn/main/gf1.png)
-![Screenshot of the builtin profiler](https://raw.githubusercontent.com/nakst/cdn/main/unknown2.png)
-
-Various utility applications:
-![Screenshot of a font editor, directory size viewer, image viewer, configuration editor, and a unit converter.](https://raw.githubusercontent.com/nakst/cdn/main/utils.jpg)
 
 ## Documentation
 
