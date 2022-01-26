@@ -620,6 +620,7 @@ void UIWindowRegisterShortcut(UIWindow *window, UIShortcut shortcut);
 void UIWindowPostMessage(UIWindow *window, UIMessage message, void *dp); // Thread-safe.
 void UIWindowPack(UIWindow *window, int width); // Change the size of the window to best match its contents.
 
+typedef void (*UIDialogUserCallback)(UIElement *);
 const char *UIDialogShow(UIWindow *window, uint32_t flags, const char *format, ...);
 
 UIMenu *UIMenuCreate(UIElement *parent, uint32_t flags);
@@ -3675,7 +3676,7 @@ const char *UIDialogShow(UIWindow *window, uint32_t flags, const char *format, .
 			} else if (format[i] == 'l' /* horizontal line */) {
 				UISpacerCreate(&row->e, UI_SPACER_LINE | UI_ELEMENT_H_FILL, 0, 1);
 			} else if (format[i] == 'u' /* user */) {
-				void (*callback)(UIElement *) = va_arg(arguments, void (*)(UIElement *));
+				UIDialogUserCallback callback = va_arg(arguments, UIDialogUserCallback);
 				callback(&row->e);
 			}
 		} else {
@@ -5161,6 +5162,8 @@ LRESULT CALLBACK _UIWindowProcedure(HWND hwnd, UINT message, WPARAM wParam, LPAR
 }
 
 void UIInitialise() {
+	ui.heap = GetProcessHeap();
+	
 	_UIInitialiseCommon();
 
 	ui.cursors[UI_CURSOR_ARROW] = LoadCursor(NULL, IDC_ARROW);
@@ -5178,8 +5181,6 @@ void UIInitialise() {
 	ui.cursors[UI_CURSOR_RESIZE_RIGHT] = LoadCursor(NULL, IDC_SIZEWE);
 	ui.cursors[UI_CURSOR_RESIZE_DOWN_LEFT] = LoadCursor(NULL, IDC_SIZENESW);
 	ui.cursors[UI_CURSOR_RESIZE_DOWN_RIGHT] = LoadCursor(NULL, IDC_SIZENWSE);
-
-	ui.heap = GetProcessHeap();
 
 	WNDCLASS windowClass = { 0 };
 	windowClass.lpfnWndProc = _UIWindowProcedure;
