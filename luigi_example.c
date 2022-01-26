@@ -1,6 +1,6 @@
 #include <stdio.h>
 
-#define UI_LINUX
+// #define UI_LINUX
 // #define UI_WINDOWS
 // #define UI_DEBUG
 #define UI_IMPLEMENTATION
