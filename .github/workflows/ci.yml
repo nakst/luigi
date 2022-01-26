@@ -31,4 +31,4 @@ jobs:
           )  
           call "!VS!\VC\Auxiliary\Build\vcvarsall.bat" amd64 || exit /b 1
         )
-        cl luigi_example.c -DUI_WINDOWS user32.lib gdi32.lib
+        cl luigi_example.c -DUI_WINDOWS user32.lib gdi32.lib shell32.lib
