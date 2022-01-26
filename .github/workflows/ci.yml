@@ -18,6 +18,7 @@ jobs:
     steps:
     - uses: actions/checkout@v2
     - name: compile
+      shell: cmd
       run: |
         @echo off
         setlocal enabledelayedexpansion
