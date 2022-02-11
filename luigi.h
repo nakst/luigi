@@ -15,6 +15,8 @@
 #include <X11/Xatom.h>
 #include <X11/cursorfont.h>
 
+#include <unistd.h>
+
 #include <xmmintrin.h>
 #endif
 
@@ -687,6 +689,9 @@ char *UIStringCopy(const char *in, ptrdiff_t inBytes);
 UIFont *UIFontCreate(const char *cPath, uint32_t size);
 UIFont *UIFontActivate(UIFont *font); // Returns the previously active font.
 
+void UIClipboardSetString(char *buf, ptrdiff_t len);
+bool UIClipboardGetString(char **buf, ptrdiff_t *len);
+
 #ifdef UI_DEBUG
 void UIInspectorLog(const char *cFormat, ...);
 #endif
@@ -720,7 +725,11 @@ struct {
 	XIM xim;
 	Atom windowClosedID, primaryID, uriListID, plainTextID;
 	Atom dndEnterID, dndPositionID, dndStatusID, dndActionCopyID, dndDropID, dndSelectionID, dndFinishedID, dndAwareID;
+	Atom selClipboardID, utf8StringID, clipboardTargetPropertyID, incrID, targetsID;
 	Cursor cursors[UI_CURSOR_COUNT];
+	Window clipboardWindow;
+	void *clipboardData;
+	ptrdiff_t clipboardDataBytes;
 #endif
 
 #ifdef UI_WINDOWS
@@ -2979,6 +2988,24 @@ int _UITextboxMessage(UIElement *element, UIMessage message, int di, void *dp) {
 			textbox->carets[0] = textbox->bytes;
 		} else if (m->textBytes && !element->window->alt && !element->window->ctrl && m->text[0] >= 0x20) {
 			UITextboxReplace(textbox, m->text, m->textBytes, true);
+		} else if ((m->code == UI_KEYCODE_LETTER('C') || m->code == UI_KEYCODE_LETTER('X')) && element->window->ctrl) {
+			int copyFrom = textbox->carets[0];
+			int copyTo = textbox->carets[1];
+			if (copyFrom != copyTo) {
+				if (copyFrom > copyTo) {
+					UI_SWAP(int, copyFrom, copyTo);
+				}
+				UIClipboardSetString(textbox->string + copyFrom, copyTo - copyFrom);
+			}
+			if (m->code == UI_KEYCODE_LETTER('X')) {
+				UITextboxReplace(textbox, NULL, 0, true);
+			}
+		} else if (m->code == UI_KEYCODE_LETTER('V') && element->window->ctrl) {
+			char *ptr;
+			ptrdiff_t len;
+			if (UIClipboardGetString(&ptr, &len)) {
+				UITextboxReplace(textbox, ptr, len, true);
+			}
 		} else {
 			handled = false;
 		}
@@ -4554,6 +4581,11 @@ void UIInitialise() {
 	ui.dndAwareID = XInternAtom(ui.display, "XdndAware", 0);
 	ui.uriListID = XInternAtom(ui.display, "text/uri-list", 0);
 	ui.plainTextID = XInternAtom(ui.display, "text/plain", 0);
+	ui.selClipboardID = XInternAtom(ui.display, "CLIPBOARD", 0);
+	ui.utf8StringID = XInternAtom(ui.display, "UTF8_STRING", 0);
+	ui.clipboardTargetPropertyID = XInternAtom(ui.display, "ClipboardTargetProperty", 0);
+	ui.incrID = XInternAtom(ui.display, "INCR", 0);
+	ui.targetsID = XInternAtom(ui.display, "TARGETS", 0);
 
 	ui.cursors[UI_CURSOR_ARROW] = XCreateFontCursor(ui.display, XC_left_ptr);
 	ui.cursors[UI_CURSOR_TEXT] = XCreateFontCursor(ui.display, XC_xterm);
@@ -4579,6 +4611,11 @@ void UIInitialise() {
 		XSetLocaleModifiers("@im=none");
 		ui.xim = XOpenIM(ui.display, 0, 0, 0);
 	}
+
+	ui.clipboardWindow = XCreateSimpleWindow(ui.display, DefaultRootWindow(ui.display), -10, -10, 1, 1, 0, 0, 0);
+	XSelectInput(ui.display, ui.clipboardWindow, PropertyChangeMask);
+	ui.clipboardData = 0;
+	ui.clipboardDataBytes = 0;
 }
 
 UIWindow *_UIFindWindow(Window window) {
@@ -4915,6 +4952,48 @@ bool _UIProcessEvent(XEvent *event) {
 
 		window->dragSource = 0; // Drag complete.
 		_UIUpdate();
+	} else if (event->type == SelectionRequest) {
+		XSelectionRequestEvent *selReqEvent = &event->xselectionrequest;
+
+		XSelectionEvent response;
+		response.type = SelectionNotify;
+		response.requestor = selReqEvent->requestor;
+		response.selection = selReqEvent->selection;
+		response.target = selReqEvent->target;
+		response.time = selReqEvent->time;
+		response.property = selReqEvent->property;
+
+		if (selReqEvent->target == ui.targetsID) {
+			// This `uint32_t` should really be `Atom` but buggy Xlib defines `Atom` as `unsigned long` which
+			// can actually be 64 bits. We can't have a list of 64 bit quantities here and the X server expects
+			// atoms to be 32 bits. XCB defines `xcb_atom_t` as `uint32_t`.
+			uint32_t targets[] = { (uint32_t)ui.utf8StringID };
+			XChangeProperty(ui.display, selReqEvent->requestor, selReqEvent->property, XA_ATOM, 32, PropModeReplace,
+				(void *)targets, sizeof(targets) / sizeof(targets[0]));
+		} else if (selReqEvent->target == ui.utf8StringID && selReqEvent->property != None) {
+			// There is supposed to be a limit of ~256k for how much data you can attach to a property at a time, hence 
+			// the need for incremental transfers.
+			//
+			// The X11 protocol spec has this to say about property sizes:
+			// "The maximum size of a property is server-dependent and may vary dynamically."
+			// https://www.x.org/releases/X11R7.5/doc/x11proto/proto.pdf
+			//
+			// I tested copying from our clipboard with ~6MB of data in it and it worked fine without any incremental
+			// transfer stuff. 
+			//
+			// Since incremental transfers don't appear to be solving any real problems and are extremely flaky requiring
+			// multiple back-and-forths between the selection owner, the selection requester and the X server, it's probably
+			// not worth implemeting them right now.
+			//
+			// If we ever need them, the spec is here:
+			// https://www.x.org/releases/X11R7.6/doc/xorg-docs/specs/ICCCM/icccm.html#incr_properties
+			XChangeProperty(ui.display, selReqEvent->requestor, selReqEvent->property, ui.utf8StringID, 8, PropModeReplace, 
+				ui.clipboardData, ui.clipboardDataBytes);
+		} else {
+			response.property = None;
+		}
+
+		XSendEvent(ui.display, selReqEvent->requestor, True, NoEventMask, (XEvent *)&response);
 	}
 
 	return false;
@@ -4988,6 +5067,172 @@ void UIWindowPostMessage(UIWindow *window, UIMessage message, void *_dp) {
 	event.type = KeyPress;
 	XSendEvent(ui.display, window->window, True, KeyPressMask, (XEvent *) &event);
 	XFlush(ui.display);
+}
+
+bool _UIWaitForXEvent(int targetType, XEvent *event, int *waitedSoFarMs) {
+	bool gotEvent = false;
+
+	int maxWaitMs = 200;
+	int waitIntervalMs = 10;
+
+	while (!gotEvent && *waitedSoFarMs < maxWaitMs) {
+		if (XPending(ui.display)) {
+			
+			XNextEvent(ui.display, event);
+			if (event->type == targetType) {
+				gotEvent = true;
+			} else {
+				_UIProcessEvent(event);
+			}
+
+		} else {
+
+			struct timespec toSleep;
+			toSleep.tv_sec = 0;
+			toSleep.tv_nsec = waitIntervalMs * 1000 * 1000;
+			struct timespec remaining;
+			remaining.tv_sec = 0;
+			remaining.tv_nsec = 0;
+			nanosleep(&toSleep, &remaining);
+			*waitedSoFarMs += (toSleep.tv_nsec - remaining.tv_nsec) / 1000 / 1000;
+		
+		}
+	}
+
+	return gotEvent;
+}
+
+void UIClipboardSetString(char *buf, ptrdiff_t len) {
+	ui.clipboardData = UI_REALLOC(ui.clipboardData, len);
+	ui.clipboardDataBytes = len;
+	memcpy(ui.clipboardData, buf, len);
+	// This should cause us to start receiving `SelectionClear` when we lose ownership
+	// and `SelectionRequest` when other programs ask for clipboard content so we can 
+	// do the OS's job for it. 
+	XSetSelectionOwner(ui.display, ui.selClipboardID, ui.clipboardWindow, CurrentTime);
+}
+
+bool UIClipboardGetString(char **buf, ptrdiff_t *len) {
+	bool gotSomething = false;
+
+	Window clipboardOwner = XGetSelectionOwner(ui.display, ui.selClipboardID);
+	if (clipboardOwner == ui.clipboardWindow) {
+
+		gotSomething = true;
+
+	} else if (clipboardOwner != None) {
+
+		// This should cause the clipboard "owner" to recieve a `SelectionRequest` in response to which it will send us a `SelectionNotify`
+		XConvertSelection(ui.display, ui.selClipboardID, ui.utf8StringID, ui.clipboardTargetPropertyID, ui.clipboardWindow, CurrentTime);
+
+		// Wait for selection notify for the clipboard window
+		{
+			XEvent event;
+			int waitedForSelectionNotifyMs = 0;
+			bool gotSelectionNotify = false;
+			while (!gotSelectionNotify && _UIWaitForXEvent(SelectionNotify, &event, &waitedForSelectionNotifyMs)) {
+				XSelectionEvent *selectionEvent = &event.xselection;
+				if (selectionEvent->requestor == ui.clipboardWindow) {
+					gotSelectionNotify = true;
+					gotSomething = selectionEvent->property != None;
+				} else {
+					_UIProcessEvent(&event);
+				}
+			}
+		}
+
+		if (gotSomething) {
+
+			Atom actualType;
+			int actualFormat;
+			unsigned long itemCount;
+			unsigned long totalBytes;
+			unsigned char *data;
+			XGetWindowProperty(ui.display, ui.clipboardWindow, ui.clipboardTargetPropertyID, 0, 0, 
+				False, AnyPropertyType, &actualType, &actualFormat, &itemCount, &totalBytes, &data);
+			XFree(data);
+
+			if (actualType != ui.incrID) {
+
+				unsigned long sizeAfterReturn;
+				XGetWindowProperty(ui.display, ui.clipboardWindow, ui.clipboardTargetPropertyID, 0, totalBytes, 
+					True, AnyPropertyType, &actualType, &actualFormat, &itemCount, &sizeAfterReturn, &data);
+				ui.clipboardDataBytes = totalBytes;
+				ui.clipboardData = UI_REALLOC(ui.clipboardData, totalBytes);
+				memcpy(ui.clipboardData, data, totalBytes);
+				XFree(data);
+
+			} else {
+
+				// This incremental transfer path likely won't work correctly if you step through it in a debugger
+				// because if we take too long to respond to chunks (by calling `XGetWindowProperty` with delete=True)
+				// the program sending us the chunks might just give up.
+
+				// This should "signal" to owner to start sending data incrementally
+				XDeleteProperty(ui.display, ui.clipboardWindow, ui.clipboardTargetPropertyID);
+				ui.clipboardDataBytes = 0;
+
+				bool incrementalTransferComplete = false;
+				while (!incrementalTransferComplete) {
+
+					// Wait for property notify (NewValue) for the clipboard window
+					bool gotChunk = false;
+					{
+						XEvent event;
+						int waitedForPropertyNotifyMs = 0;
+						while (!gotChunk && _UIWaitForXEvent(PropertyNotify, &event, &waitedForPropertyNotifyMs)) {
+							XPropertyEvent *propertyEvent = &event.xproperty;
+
+							if (propertyEvent->window == ui.clipboardWindow && 
+								propertyEvent->state == PropertyNewValue && 
+								propertyEvent->atom == ui.clipboardTargetPropertyID) {
+
+								gotChunk = true;
+
+							} else {
+								_UIProcessEvent(&event);
+							}
+						}
+					}
+
+					if (gotChunk) {
+
+						unsigned long chunkSize;
+						XGetWindowProperty(ui.display, ui.clipboardWindow, ui.clipboardTargetPropertyID, 0, 0, 
+							False, AnyPropertyType, &actualType, &actualFormat, &itemCount, &chunkSize, &data);
+						XFree(data);
+
+						if (chunkSize == 0) {
+							incrementalTransferComplete = true;
+							XDeleteProperty(ui.display, ui.clipboardWindow, ui.clipboardTargetPropertyID);
+						} else {
+							unsigned long chunkSizeAfterReturn;
+							XGetWindowProperty(ui.display, ui.clipboardWindow, ui.clipboardTargetPropertyID, 0, chunkSize, 
+								True, AnyPropertyType, &actualType, &actualFormat, &itemCount, &chunkSizeAfterReturn, &data);
+
+							ptrdiff_t currentOffset = ui.clipboardDataBytes;
+							ui.clipboardDataBytes += chunkSize;
+							ui.clipboardData = UI_REALLOC(ui.clipboardData, ui.clipboardDataBytes);
+
+							memcpy(ui.clipboardData + currentOffset, data, chunkSize);
+
+							XFree(data);
+						}
+
+					} else {
+						incrementalTransferComplete = true; // Give up if timed out waiting for chunk
+					}
+				}
+			}
+		}
+	}
+
+	if (gotSomething) {
+		*buf = ui.clipboardData;
+		*len = ui.clipboardDataBytes;
+	}
+
+	return gotSomething;
 }
 
 #endif
@@ -5300,6 +5545,15 @@ void *_UIHeapReAlloc(void *pointer, size_t size) {
 			return NULL;
 		}
 	}
+}
+
+void UIClipboardSetString(char *buf, ptrdiff_t len) {
+
+}
+
+bool UIClipboardGetString(char **buf, ptrdiff_t *len) {
+	bool gotSomething = false;
+	return gotSomething;
 }
 
 #endif
