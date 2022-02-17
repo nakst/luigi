@@ -848,7 +848,6 @@ void _UIClipboardReadTextEnd(UIWindow *window, char *text);
 bool _UIMessageLoopSingle(int *result);
 void _UIInspectorRefresh();
 void _UIUpdate();
-UIWindow *_UIFindWindow(Window window);
 
 #ifdef UI_WINDOWS
 void *_UIHeapReAlloc(void *pointer, size_t size);
@@ -4696,6 +4695,20 @@ Display *_UIX11GetDisplay() {
 	return ui.display;
 }
 
+UIWindow *_UIFindWindow(Window window) {
+	UIWindow *w = ui.windows;
+
+	while (w) {
+		if (w->window == window) {
+			return w;
+		}
+
+		w = w->next;
+	}
+
+	return NULL;
+}
+
 void _UIClipboardWriteText(UIWindow *window, char *text) {
 	UI_FREE(ui.pasteText);
 	ui.pasteText = text;
@@ -4843,20 +4856,6 @@ void UIInitialise() {
 		XSetLocaleModifiers("@im=none");
 		ui.xim = XOpenIM(ui.display, 0, 0, 0);
 	}
-}
-
-UIWindow *_UIFindWindow(Window window) {
-	UIWindow *w = ui.windows;
-
-	while (w) {
-		if (w->window == window) {
-			return w;
-		}
-
-		w = w->next;
-	}
-
-	return NULL;
 }
 
 void _UIWindowSetCursor(UIWindow *window, int cursor) {
