@@ -619,6 +619,7 @@ void UIWindowRegisterShortcut(UIWindow *window, UIShortcut shortcut);
 void UIWindowPostMessage(UIWindow *window, UIMessage message, void *dp); // Thread-safe.
 void UIWindowPack(UIWindow *window, int width); // Change the size of the window to best match its contents.
 
+typedef void (*UIDialogUserCallback)(UIElement *);
 const char *UIDialogShow(UIWindow *window, uint32_t flags, const char *format, ...);
 
 UIMenu *UIMenuCreate(UIElement *parent, uint32_t flags);
@@ -3753,7 +3754,7 @@ const char *UIDialogShow(UIWindow *window, uint32_t flags, const char *format, .
 			} else if (format[i] == 'l' /* horizontal line */) {
 				UISpacerCreate(&row->e, UI_SPACER_LINE | UI_ELEMENT_H_FILL, 0, 1);
 			} else if (format[i] == 'u' /* user */) {
-				void (*callback)(UIElement *) = va_arg(arguments, void (*)(UIElement *));
+				UIDialogUserCallback callback = va_arg(arguments, UIDialogUserCallback);
 				callback(&row->e);
 			}
 		} else {
