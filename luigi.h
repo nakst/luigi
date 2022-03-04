@@ -5465,6 +5465,8 @@ LRESULT CALLBACK _UIWindowProcedure(HWND hwnd, UINT message, WPARAM wParam, LPAR
 }
 
 void UIInitialise() {
+	ui.heap = GetProcessHeap();
+	
 	_UIInitialiseCommon();
 
 	ui.cursors[UI_CURSOR_ARROW] = LoadCursor(NULL, IDC_ARROW);
@@ -5482,8 +5484,6 @@ void UIInitialise() {
 	ui.cursors[UI_CURSOR_RESIZE_RIGHT] = LoadCursor(NULL, IDC_SIZEWE);
 	ui.cursors[UI_CURSOR_RESIZE_DOWN_LEFT] = LoadCursor(NULL, IDC_SIZENESW);
 	ui.cursors[UI_CURSOR_RESIZE_DOWN_RIGHT] = LoadCursor(NULL, IDC_SIZENWSE);
-
-	ui.heap = GetProcessHeap();
 
 	WNDCLASS windowClass = { 0 };
 	windowClass.lpfnWndProc = _UIWindowProcedure;
