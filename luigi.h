@@ -2404,6 +2404,7 @@ int UICodeHitTest(UICode *code, int x, int y) {
 
 	UIFont *previousFont = UIFontActivate(code->font);
 	int lineHeight = UIMeasureStringHeight();
+	bool inMargin = x < UI_SIZE_CODE_MARGIN + UI_SIZE_CODE_MARGIN_GAP / 2 && (~code->e.flags & UI_CODE_NO_MARGIN);
 	UIFontActivate(previousFont);
 
 	if (y < 0 || y >= lineHeight * code->lineCount) {
@@ -2411,12 +2412,7 @@ int UICodeHitTest(UICode *code, int x, int y) {
 	}
 
 	int line = y / lineHeight + 1;
-
-	if (x < UI_SIZE_CODE_MARGIN && (~code->e.flags & UI_CODE_NO_MARGIN)) {
-		return -line;
-	} else {
-		return line;
-	}
+	return inMargin ? -line : line;
 }
 
 int UIDrawStringHighlighted(UIPainter *painter, UIRectangle lineBounds, const char *string, ptrdiff_t bytes, int tabSize) {
