@@ -3,8 +3,6 @@
 // TODO Keyboard navigation - menus, dialogs, tables.
 // TODO Easier to use fonts; GDI font support.
 
-// TODO Luigi2:
-
 /////////////////////////////////////////
 // Header includes.
 /////////////////////////////////////////
@@ -449,7 +447,6 @@ typedef struct UIPanel {
 #define UI_PANEL_HORIZONTAL (1 << 0)
 #define UI_PANEL_COLOR_1 (1 << 2)
 #define UI_PANEL_COLOR_2 (1 << 3)
-#define UI_PANEL_EXPAND (1 << 4)
 #define UI_PANEL_SMALL_SPACING (1 << 5)
 #define UI_PANEL_MEDIUM_SPACING (1 << 6)
 #define UI_PANEL_LARGE_SPACING (1 << 7)
@@ -634,7 +631,6 @@ UIButton *UIButtonCreate(UIElement *parent, uint32_t flags, const char *label, p
 UICheckbox *UICheckboxCreate(UIElement *parent, uint32_t flags, const char *label, ptrdiff_t labelBytes);
 UIColorPicker *UIColorPickerCreate(UIElement *parent, uint32_t flags);
 UIExpandPane *UIExpandPaneCreate(UIElement *parent, uint32_t flags, const char *label, ptrdiff_t labelBytes, uint32_t panelFlags);
-UIGauge *UIGaugeCreate(UIElement *parent, uint32_t flags);
 UIMDIClient *UIMDIClientCreate(UIElement *parent, uint32_t flags);
 UIMDIChild *UIMDIChildCreate(UIElement *parent, uint32_t flags, UIRectangle initialBounds, const char *title, ptrdiff_t titleBytes);
 UIPanel *UIPanelCreate(UIElement *parent, uint32_t flags);
@@ -644,6 +640,9 @@ UISpacer *UISpacerCreate(UIElement *parent, uint32_t flags, int width, int heigh
 UISplitPane *UISplitPaneCreate(UIElement *parent, uint32_t flags, float weight);
 UITabPane *UITabPaneCreate(UIElement *parent, uint32_t flags, const char *tabs /* separate with \t, terminate with \0 */);
 UIWrapPanel *UIWrapPanelCreate(UIElement *parent, uint32_t flags);
+
+UIGauge *UIGaugeCreate(UIElement *parent, uint32_t flags);
+void UIGaugeSetPosition(UIGauge *gauge, float value);
 
 UILabel *UILabelCreate(UIElement *parent, uint32_t flags, const char *label, ptrdiff_t labelBytes);
 void UILabelSetContent(UILabel *code, const char *content, ptrdiff_t byteCount);
@@ -667,6 +666,7 @@ UITextbox *UITextboxCreate(UIElement *parent, uint32_t flags);
 void UITextboxReplace(UITextbox *textbox, const char *text, ptrdiff_t bytes, bool sendChangedMessage);
 void UITextboxClear(UITextbox *textbox, bool sendChangedMessage);
 void UITextboxMoveCaret(UITextbox *textbox, bool backward, bool word);
+char *UITextboxToCString(UITextbox *textbox); // Free with UI_FREE.
 
 UITable *UITableCreate(UIElement *parent, uint32_t flags, const char *columns /* separate with \t, terminate with \0 */);
 int UITableHitTest(UITable *table, int x, int y); // Returns item index. Returns -1 if not on an item.
@@ -1542,8 +1542,6 @@ int _UIPanelLayout(UIPanel *panel, UIRectangle bounds, bool measure) {
 	int vSpace = UI_RECT_HEIGHT(bounds) - UI_RECT_TOTAL_V(panel->border) * scale;
 	int count = 0;
 	int perFill = _UIPanelCalculatePerFill(panel, &count, hSpace, vSpace, scale);
-
-	bool expand = panel->e.flags & UI_PANEL_EXPAND;
 	int scaledBorder2 = (horizontal ? panel->border.t : panel->border.l) * panel->e.window->scale;
 
 	for (uint32_t i = 0; i < panel->e.childCount; i++) {
@@ -1802,6 +1800,13 @@ int _UIButtonMessage(UIElement *element, UIMessage message, int di, void *dp) {
 	}
 
 	return 0;
+}
+
+void UIButtonSetLabel(UIButton *button, const char *string, ptrdiff_t stringBytes) {
+	UI_FREE(button->label);
+	button->label = UIStringCopy(string, (button->labelBytes = stringBytes));
+	UIElementMeasurementsChanged(&button->e, 1);
+	UIElementRepaint(&button->e, NULL);
 }
 
 UIButton *UIButtonCreate(UIElement *parent, uint32_t flags, const char *label, ptrdiff_t labelBytes) {
@@ -2587,6 +2592,12 @@ int _UIGaugeMessage(UIElement *element, UIMessage message, int di, void *dp) {
 	return 0;
 }
 
+void UIGaugeSetPosition(UIGauge *gauge, float position) {
+	if (position == gauge->position) return;
+	gauge->position = position;
+	UIElementRepaint(&gauge->e, NULL);
+}
+
 UIGauge *UIGaugeCreate(UIElement *parent, uint32_t flags) {
 	return (UIGauge *) UIElementCreate(sizeof(UIGauge), parent, flags, _UIGaugeMessage, "Gauge");
 }
@@ -2859,6 +2870,17 @@ UITable *UITableCreate(UIElement *parent, uint32_t flags, const char *columns) {
 // Textboxes.
 /////////////////////////////////////////
 
+char *UITextboxToCString(UITextbox *textbox) {
+	char *buffer = (char *) UI_MALLOC(textbox->bytes + 1);
+	
+	for (intptr_t i = 0; i < textbox->bytes; i++) {
+		buffer[i] = textbox->string[i];
+	}
+
+	buffer[textbox->bytes] = 0;
+	return buffer;
+}
+					      
 void UITextboxReplace(UITextbox *textbox, const char *text, ptrdiff_t bytes, bool sendChangedMessage) {
 	if (bytes == -1) {
 		bytes = _UIStringLength(text);
@@ -3474,7 +3496,7 @@ const char *UIDialogShow(UIWindow *window, uint32_t flags, const char *format, .
 
 	UI_ASSERT(!window->dialog);
 	window->dialog = UIElementCreate(sizeof(UIElement), &window->e, 0, _UIDialogWrapperMessage, "DialogWrapper");
-	UIPanel *panel = UIPanelCreate(window->dialog, UI_PANEL_MEDIUM_SPACING | UI_PANEL_COLOR_1 | UI_PANEL_EXPAND);
+	UIPanel *panel = UIPanelCreate(window->dialog, UI_PANEL_MEDIUM_SPACING | UI_PANEL_COLOR_1);
 	panel->border = UI_RECT_1(UI_SIZE_PANE_MEDIUM_BORDER * 2);
 	window->e.children[0]->flags |= UI_ELEMENT_DISABLED;
 
@@ -3487,7 +3509,7 @@ const char *UIDialogShow(UIWindow *window, uint32_t flags, const char *format, .
 
 	for (int i = 0; format[i]; i++) {
 		if (i == 0 || format[i - 1] == '\n') {
-			row = UIPanelCreate(&panel->e, UI_PANEL_HORIZONTAL);
+			row = UIPanelCreate(&panel->e, UI_PANEL_HORIZONTAL | UI_ELEMENT_H_FILL);
 			row->gap = UI_SIZE_PANE_SMALL_GAP;
 		}
 
@@ -3706,7 +3728,7 @@ void UIWindowRegisterShortcut(UIWindow *window, UIShortcut shortcut) {
 }
 
 void UIElementSetDisabled(UIElement *element, bool disabled) {
-	if (element->window->focused == element) {
+	if (element->window->focused == element && disabled) {
 		UIElementFocus(&element->window->e);
 	}
 
@@ -3760,6 +3782,7 @@ void UIElementMeasurementsChanged(UIElement *element, int which) {
 	}
 
 	while (true) {
+		if (element->parent->flags & UI_ELEMENT_DESTROY) return;
 		which &= ~UIElementMessage(element->parent, UI_MSG_GET_CHILD_STABILITY, which, element);
 		if (!which) break;
 		element->flags |= UI_ELEMENT_RELAYOUT;
