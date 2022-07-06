@@ -358,6 +358,7 @@ typedef struct UIElement {
 #define UI_ELEMENT_TAB_STOP (1 << 20)
 #define UI_ELEMENT_NON_CLIENT (1 << 21) // Don't destroy in UIElementDestroyDescendents, like scroll bars.
 #define UI_ELEMENT_DISABLED (1 << 22) // Don't receive input events.
+#define UI_ELEMENT_BORDER (1 << 23)
 
 #define UI_ELEMENT_HIDE (1 << 27)
 #define UI_ELEMENT_RELAYOUT (1 << 28)
@@ -451,7 +452,6 @@ typedef struct UIPanel {
 #define UI_PANEL_MEDIUM_SPACING (1 << 6)
 #define UI_PANEL_LARGE_SPACING (1 << 7)
 #define UI_PANEL_SCROLL (1 << 8)
-#define UI_PANEL_BORDER (1 << 9)
 	UIElement e;
 	struct UIScrollBar *scrollBar;
 	UIRectangle border;
@@ -661,6 +661,7 @@ const char *UIDialogShow(UIWindow *window, uint32_t flags, const char *format, .
 UIMenu *UIMenuCreate(UIElement *parent, uint32_t flags);
 void UIMenuAddItem(UIMenu *menu, uint32_t flags, const char *label, ptrdiff_t labelBytes, void (*invoke)(void *cp), void *cp);
 void UIMenuShow(UIMenu *menu);
+bool UIMenusOpen();
 
 UITextbox *UITextboxCreate(UIElement *parent, uint32_t flags);
 void UITextboxReplace(UITextbox *textbox, const char *text, ptrdiff_t bytes, bool sendChangedMessage);
@@ -680,6 +681,7 @@ int UICodeHitTest(UICode *code, int x, int y); // Returns line number; negates i
 void UICodeInsertContent(UICode *code, const char *content, ptrdiff_t byteCount, bool replace);
 
 void UIDrawBlock(UIPainter *painter, UIRectangle rectangle, uint32_t color);
+void UIDrawCircle(UIPainter *painter, int centerX, int centerY, int radius, uint32_t fillColor, uint32_t outlineColor, bool hollow);
 void UIDrawInvert(UIPainter *painter, UIRectangle rectangle);
 bool UIDrawLine(UIPainter *painter, int x0, int y0, int x1, int y1, uint32_t color); // Returns false if the line was not visible.
 void UIDrawTriangle(UIPainter *painter, int x0, int y0, int x1, int y1, int x2, int y2, uint32_t color);
@@ -1165,6 +1167,40 @@ bool UIDrawLine(UIPainter *painter, int x0, int y0, int x1, int y1, uint32_t col
 	return true;
 }
 
+void UIDrawCircle(UIPainter *painter, int cx, int cy, int radius, uint32_t fillColor, uint32_t outlineColor, bool hollow) {
+	// TODO There's a hole missing at the bottom of the circle!
+	// TODO This looks bad at small radii (< 20).
+
+	float x = 0, y = -radius;
+	float dx = radius, dy = 0;
+	float step = 0.2f / radius;
+	int px = 0, py = cy + y;
+
+	while (x >= 0) {
+		x  += dx * step;
+		y  += dy * step;
+		dx += -x * step;
+		dy += -y * step;
+
+		int ix = x, iy = cy + y;
+
+		while (py <= iy) {
+			if (py >= painter->clip.t && py < painter->clip.b) {
+				for (int s = 0; s <= ix || s <= px; s++) {
+					bool inOutline = (s <= ix != s <= px) || (ix == px && s == ix);
+					if (hollow && !inOutline) continue;
+					bool clip0 = cx + s >= painter->clip.l && cx + s < painter->clip.r;
+					bool clip1 = cx - s >= painter->clip.l && cx - s < painter->clip.r;
+					if (clip0) painter->bits[painter->width * py + cx + s] = inOutline ? outlineColor : fillColor;
+					if (clip1) painter->bits[painter->width * py + cx - s] = inOutline ? outlineColor : fillColor;
+				}
+			}
+
+			px = ix, py++;
+		}
+	}
+}
+
 void UIDrawTriangle(UIPainter *painter, int x0, int y0, int x1, int y1, int x2, int y2, uint32_t color) {
 	// Step 1: Sort the points by their y-coordinate.
 	if (y1 < y0) { int xt = x0; x0 = x1, x1 = xt; int yt = y0; y0 = y1, y1 = yt; }
@@ -1361,6 +1397,7 @@ void UIElementDestroy(UIElement *element) {
 
 	if (element->parent) {
 		UIElementRelayout(element->parent);
+		UIElementRepaint(element->parent, &element->bounds);
 		UIElementMeasurementsChanged(element->parent, 3);
 	}
 }
@@ -1612,10 +1649,6 @@ int _UIPanelMessage(UIElement *element, UIMessage message, int di, void *dp) {
 		} else if (element->flags & UI_PANEL_COLOR_2) {
 			UIDrawBlock((UIPainter *) dp, element->bounds, ui.theme.panel2);
 		} 
-		
-		if (element->flags & UI_PANEL_BORDER) {
-			UIDrawBorder((UIPainter *) dp, element->bounds, ui.theme.border, UI_RECT_1((int) element->window->scale));
-		}
 	} else if (message == UI_MSG_MOUSE_WHEEL && panel->scrollBar) {
 		return UIElementMessage(&panel->scrollBar->e, message, di, dp);
 	} else if (message == UI_MSG_SCROLLED) {
@@ -2885,41 +2918,20 @@ char *UITextboxToCString(UITextbox *textbox) {
 }
 					      
 void UITextboxReplace(UITextbox *textbox, const char *text, ptrdiff_t bytes, bool sendChangedMessage) {
-	if (bytes == -1) {
-		bytes = _UIStringLength(text);
-	}
-
+	if (bytes == -1) bytes = _UIStringLength(text);
 	int deleteFrom = textbox->carets[0], deleteTo = textbox->carets[1];
+	if (deleteFrom > deleteTo) UI_SWAP(int, deleteFrom, deleteTo);
 
-	if (deleteFrom > deleteTo) {
-		UI_SWAP(int, deleteFrom, deleteTo);
-	}
-
-	for (int i = deleteTo; i < textbox->bytes; i++) {
-		textbox->string[i - deleteTo + deleteFrom] = textbox->string[i];
-	}
-
+	UI_MEMMOVE(&textbox->string[deleteFrom], &textbox->string[deleteTo], textbox->bytes - deleteTo);
 	textbox->bytes -= deleteTo - deleteFrom;
-	textbox->carets[0] = textbox->carets[1] = deleteFrom;
-
 	textbox->string = (char *) UI_REALLOC(textbox->string, textbox->bytes + bytes);
-
-	for (int i = textbox->bytes + bytes - 1; i >= textbox->carets[0] + bytes; i--) {
-		textbox->string[i] = textbox->string[i - bytes];
-	}
-
-	for (int i = textbox->carets[0]; i < textbox->carets[0] + bytes; i++) {
-		textbox->string[i] = text[i - textbox->carets[0]];
-	}
-
+	UI_MEMMOVE(&textbox->string[deleteFrom + bytes], &textbox->string[deleteFrom], textbox->bytes - deleteFrom);
+	UI_MEMMOVE(&textbox->string[deleteFrom], &text[0], bytes);
 	textbox->bytes += bytes;
-	textbox->carets[0] += bytes;
+	textbox->carets[0] = deleteFrom + bytes;
 	textbox->carets[1] = textbox->carets[0];
 
-	if (sendChangedMessage) {
-		UIElementMessage(&textbox->e, UI_MSG_VALUE_CHANGED, 0, 0);
-	}
-
+	if (sendChangedMessage) UIElementMessage(&textbox->e, UI_MSG_VALUE_CHANGED, 0, 0);
 	textbox->e.window->textboxModifiedFlag = true;
 	UIElementRepaint(&textbox->e, NULL);
 }
@@ -3023,10 +3035,11 @@ int _UITextboxMessage(UIElement *element, UIMessage message, int di, void *dp) {
 
 			UITextboxReplace(textbox, NULL, 0, true);
 		} else if (m->code == UI_KEYCODE_LEFT || m->code == UI_KEYCODE_RIGHT) {
-			UITextboxMoveCaret(textbox, m->code == UI_KEYCODE_LEFT, element->window->ctrl);
-
-			if (!element->window->shift) {
-				textbox->carets[1] = textbox->carets[0];
+			if (textbox->carets[0] == textbox->carets[1] || element->window->shift) {
+				UITextboxMoveCaret(textbox, m->code == UI_KEYCODE_LEFT, element->window->ctrl);
+				if (!element->window->shift) textbox->carets[1] = textbox->carets[0];
+			} else {
+				textbox->carets[1 - element->window->shift] = textbox->carets[element->window->shift];
 			}
 		} else if (m->code == UI_KEYCODE_HOME || m->code == UI_KEYCODE_END) {
 			if (m->code == UI_KEYCODE_HOME) {
@@ -3868,6 +3881,13 @@ void _UIElementPaint(UIElement *element, UIPainter *painter) {
 		painter->clip = previousClip;
 		_UIElementPaint(element->children[i], painter);
 	}
+
+	// Draw the border.
+
+	if (element->flags & UI_ELEMENT_BORDER) {
+		painter->clip = previousClip;
+		UIDrawBorder(painter, element->bounds, ui.theme.border, UI_RECT_1((int) element->window->scale));
+	}
 }
 
 bool _UIDestroy(UIElement *element) {
@@ -3990,7 +4010,7 @@ UIElement *UIElementFindByPoint(UIElement *element, int x, int y) {
 	return element;
 }
 
-bool _UIMenusOpen() {
+bool UIMenusOpen() {
 	UIWindow *window = ui.windows;
 
 	while (window) {
@@ -4122,7 +4142,7 @@ bool _UIWindowInputEvent(UIWindow *window, UIMessage message, int di, void *dp) 
 				}
 			}
 
-			if (!handled && !_UIMenusOpen() && message == UI_MSG_KEY_TYPED) {
+			if (!handled && !UIMenusOpen() && message == UI_MSG_KEY_TYPED) {
 				UIKeyTyped *m = (UIKeyTyped *) dp;
 
 				if (m->code == UI_KEYCODE_TAB && !window->ctrl && !window->alt) {
