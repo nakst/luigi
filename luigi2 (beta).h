@@ -1057,11 +1057,14 @@ uint64_t UIAnimateClock() {
 }
 
 void _UIProcessAnimations() {
+	bool update = false;
+
 	for (uint32_t i = 0; i < ui.animatingCount; i++) {
+		update = true;
 		UIElementMessage(ui.animating[i], UI_MSG_ANIMATE, 0, 0);
 	}
 
-	if (ui.animatingCount) {
+	if (update) {
 		_UIUpdate();
 	}
 }
