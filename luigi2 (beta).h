@@ -2875,12 +2875,12 @@ int _UISliderMessage(UIElement *element, UIMessage message, int di, void *dp) {
 
 void UISliderSetPosition(UISlider *slider, double position) {
 	if (position == slider->position) return;
-    if (slider->steps > 1) slider->position = (int) (slider->position * (slider->steps - 1) + 0.5f) / (float) (slider->steps - 1);
-    if (position < 0) position = 0;
-    if (position > 1) position = 1;
-    slider->position = position;
-    UIElementMessage(&slider->e, UI_MSG_VALUE_CHANGED, 0, 0);
-    UIElementRepaint(&slider->e, NULL);
+	if (slider->steps > 1) slider->position = (int) (slider->position * (slider->steps - 1) + 0.5f) / (float) (slider->steps - 1);
+	if (position < 0) position = 0;
+	if (position > 1) position = 1;
+	slider->position = position;
+	UIElementMessage(&slider->e, UI_MSG_VALUE_CHANGED, 0, 0);
+	UIElementRepaint(&slider->e, NULL);
 }
 
 UISlider *UISliderCreate(UIElement *parent, uint32_t flags) {
