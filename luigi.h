@@ -4,6 +4,8 @@
 // TODO Easier to use fonts; GDI font support.
 // TODO Formalize the notion of size-stability? See _UIExpandPaneButtonInvoke.
 
+#error This version of luigi is no longer maintained, upgrade to luigi2 or delete line 7 of luigi.h to use this version.
+
 #include <stdint.h>
 #include <stddef.h>
 #include <stdbool.h>
@@ -36,6 +38,7 @@
 #define UI_CLOCK GetTickCount
 #define UI_CLOCKS_PER_SECOND (1000)
 #define UI_CLOCK_T DWORD
+#define UI_MEMMOVE _UIMemmove
 #endif
 
 #if defined(UI_LINUX)
@@ -50,9 +53,10 @@
 #define UI_FREE free
 #define UI_MALLOC malloc
 #define UI_REALLOC realloc
-#define UI_CLOCK clock
-#define UI_CLOCKS_PER_SECOND CLOCKS_PER_SEC
+#define UI_CLOCK _UIClock
+#define UI_CLOCKS_PER_SECOND 1000
 #define UI_CLOCK_T clock_t
+#define UI_MEMMOVE memmove
 #endif
 
 #if defined(UI_ESSENCE)
@@ -66,6 +70,7 @@
 #define UI_CLOCK EsTimeStampMs
 #define UI_CLOCKS_PER_SECOND 1000
 #define UI_CLOCK_T uint64_t
+#define UI_MEMMOVE EsCRTmemmove
 
 // Callback to allow the application to process messages.
 void _UIMessageProcess(EsMessage *message);
@@ -137,6 +142,7 @@ void _UIMessageProcess(EsMessage *message);
 #define UI_UPDATE_FOCUSED (3)
 
 typedef enum UIMessage {
+	// General messages.
 	UI_MSG_PAINT, // dp = pointer to UIPainter
 	UI_MSG_LAYOUT,
 	UI_MSG_DESTROY,
@@ -148,6 +154,7 @@ typedef enum UIMessage {
 	UI_MSG_FIND_BY_POINT, // dp = pointer to UIFindByPoint; return 1 if handled
 	UI_MSG_CLIENT_PARENT, // dp = pointer to UIElement *, set it to the parent for client elements
 
+	// Input events.
 	UI_MSG_INPUT_EVENTS_START, // not sent to disabled elements
 	UI_MSG_LEFT_DOWN,
 	UI_MSG_LEFT_UP,
@@ -164,15 +171,19 @@ typedef enum UIMessage {
 	UI_MSG_PRESSED_DESCENDENT, // dp = pointer to child that is/contains pressed element
 	UI_MSG_INPUT_EVENTS_END,
 
+	// Specific elements.
 	UI_MSG_VALUE_CHANGED, // sent to notify that the element's value has changed
 	UI_MSG_TABLE_GET_ITEM, // dp = pointer to UITableGetItem; return string length
 	UI_MSG_CODE_GET_MARGIN_COLOR, // di = line index (starts at 1); return color
 	UI_MSG_CODE_DECORATE_LINE, // dp = pointer to UICodeDecorateLine
 	UI_MSG_WINDOW_CLOSE, // return 1 to prevent default (process exit for UIWindow; close for UIMDIChild)
 	UI_MSG_TAB_SELECTED, // sent to the tab that was selected (not the tab pane itself)
+
+	// Windows.
 	UI_MSG_WINDOW_DROP_FILES, // di = count, dp = char ** of paths
 	UI_MSG_WINDOW_ACTIVATE,
 
+	// User-defined messages.
 	UI_MSG_USER,
 } UIMessage;
 
@@ -265,7 +276,7 @@ typedef struct UIFindByPoint {
 #define UI_RECT_BOTTOM_LEFT(_r) (_r).l, (_r).b
 #define UI_RECT_BOTTOM_RIGHT(_r) (_r).r, (_r).b
 #define UI_RECT_ALL(_r) (_r).l, (_r).r, (_r).t, (_r).b
-#define UI_RECT_VALID(_r) (UI_RECT_WIDTH(_r) > 0 && UI_RECT_HEIGHT(_r) > 0)
+#define UI_RECT_VALID(_r) ((_r).l < (_r).r && (_r).t < (_r).b)
 
 #define UI_COLOR_ALPHA_F(x) ((((x) >> 24) & 0xFF) / 255.0f)
 #define UI_COLOR_RED_F(x) ((((x) >> 16) & 0xFF) / 255.0f)
@@ -635,6 +646,7 @@ UITextbox *UITextboxCreate(UIElement *parent, uint32_t flags);
 void UITextboxReplace(UITextbox *textbox, const char *text, ptrdiff_t bytes, bool sendChangedMessage);
 void UITextboxClear(UITextbox *textbox, bool sendChangedMessage);
 void UITextboxMoveCaret(UITextbox *textbox, bool backward, bool word);
+char *UITextboxToCString(UITextbox *textbox); // Free with UI_FREE.
 
 UITable *UITableCreate(UIElement *parent, uint32_t flags, const char *columns /* separate with \t, terminate with \0 */);
 int UITableHitTest(UITable *table, int x, int y); // Returns item index. Returns -1 if not on an item.
@@ -855,8 +867,13 @@ bool _UIMessageLoopSingle(int *result);
 void _UIInspectorRefresh();
 void _UIUpdate();
 
+#ifdef UI_LINUX
+UI_CLOCK_T _UIClock();
+#endif
+
 #ifdef UI_WINDOWS
 void *_UIHeapReAlloc(void *pointer, size_t size);
+void *_UIMemmove(void *dest, const void *src, size_t n);
 #endif
 
 UIRectangle UIRectangleIntersection(UIRectangle a, UIRectangle b) {
@@ -2944,6 +2961,17 @@ UITable *UITableCreate(UIElement *parent, uint32_t flags, const char *columns) {
 	return table;
 }
 
+char *UITextboxToCString(UITextbox *textbox) {
+	char *buffer = (char *) UI_MALLOC(textbox->bytes + 1);
+
+	for (intptr_t i = 0; i < textbox->bytes; i++) {
+		buffer[i] = textbox->string[i];
+	}
+
+	buffer[textbox->bytes] = 0;
+	return buffer;
+}
+
 void UITextboxReplace(UITextbox *textbox, const char *text, ptrdiff_t bytes, bool sendChangedMessage) {
 	if (bytes == -1) {
 		bytes = _UIStringLength(text);
@@ -4864,8 +4892,6 @@ char *_UIClipboardReadTextStart(UIWindow *window, size_t *bytes) {
 
 void _UIClipboardReadTextEnd(UIWindow *window, char *text) {
 	if (text) {
-		//XFree(text);
-		//XDeleteProperty(ui.copyEvent.xselection.display, ui.copyEvent.xselection.requestor, ui.copyEvent.xselection.property);
 		UI_FREE(text);
 	}
 }
@@ -4995,6 +5021,12 @@ void UIWindowPack(UIWindow *window, int _width) {
 	int width = _width ? _width : UIElementMessage(window->e.children, UI_MSG_GET_WIDTH, 0, 0);
 	int height = UIElementMessage(window->e.children, UI_MSG_GET_HEIGHT, width, 0);
 	XResizeWindow(ui.display, window->window, width, height);
+}
+
+UI_CLOCK_T _UIClock() {
+	struct timespec spec;
+	clock_gettime(CLOCK_REALTIME, &spec);
+	return spec.tv_sec * 1000 + spec.tv_nsec / 1000000;
 }
 
 bool _UIProcessEvent(XEvent *event) {
@@ -5208,7 +5240,7 @@ bool _UIProcessEvent(XEvent *event) {
 							n[0] = s[j + 1], n[1] = s[j + 2], n[2] = 0;
 							s[j] = strtol(n, NULL, 16);
 							if (!s[j]) break;
-							memmove(s + j + 1, s + j + 3, strlen(s) - j - 2);
+							UI_MEMMOVE(s + j + 1, s + j + 3, strlen(s) - j - 2);
 						}
 					}
 
@@ -5720,6 +5752,24 @@ char *_UIClipboardReadTextStart(UIWindow *window, size_t *bytes) {
 
 void _UIClipboardReadTextEnd(UIWindow *window, char *text) {
 	UI_FREE(text);
+}
+
+void *_UIMemmove(void *dest, const void *src, size_t n) {
+	if ((uintptr_t) dest < (uintptr_t) src) {
+		uint8_t *dest8 = (uint8_t *) dest;
+		const uint8_t *src8 = (const uint8_t *) src;
+		for (uintptr_t i = 0; i < n; i++) {
+			dest8[i] = src8[i];
+		}
+		return dest;
+	} else {
+		uint8_t *dest8 = (uint8_t *) dest;
+		const uint8_t *src8 = (const uint8_t *) src;
+		for (uintptr_t i = n; i; i--) {
+			dest8[i - 1] = src8[i - 1];
+		}
+		return dest;
+	}
 }
 
 #endif
