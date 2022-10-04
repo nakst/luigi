@@ -8,6 +8,8 @@
 
 UIWindow *window;
 UILabel *label;
+UISlider *slider;
+UIGauge *gauge;
 
 const char *themeItems[] = {
 	"panel1", 
@@ -95,6 +97,15 @@ int MyButton2Message(UIElement *element, UIMessage message, int di, void *dp) {
 	return 0;
 }
 
+int MySliderMessage(UIElement *element, UIMessage message, int di, void *dp) {
+	if (message == UI_MSG_VALUE_CHANGED) {
+		gauge->position = slider->position;
+		UIElementRepaint(&gauge->e, NULL);
+	}
+
+	return 0;
+}
+
 int selected;
 
 int MyTableMessage(UIElement *element, UIMessage message, int di, void *dp) {
@@ -145,8 +156,11 @@ int WinMain(HINSTANCE instance, HINSTANCE previousInstance, LPSTR commandLine, i
 		UIButtonCreate(&panel->e, 0, "3", -1)->e.messageUser = MyButtonMessage;
 		UIButtonCreate(&panel->e, 0, "4", -1)->e.messageUser = MyButtonMessage;
 		UIButtonCreate(&panel->e, 0, "5", -1)->e.messageUser = MyButtonMessage;
-		UIGaugeCreate(&panel->e, 0)->position = 0.3f;
-		UISliderCreate(&panel->e, 0)->position = 0.3f;
+		gauge = UIGaugeCreate(&panel->e, 0);
+		gauge->position = 0.3f;
+		slider = UISliderCreate(&panel->e, 0);
+		slider->e.messageUser = MySliderMessage;
+		slider->position = 0.3f;
 		UITextboxCreate(&panel->e, 0);
 	}
 
