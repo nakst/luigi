@@ -1541,7 +1541,7 @@ void UIDrawControlDefault(UIPainter *painter, UIRectangle bounds, uint32_t mode,
 		}
 		UIDrawBlock(painter, filled, ui.theme.selected);
 	} else if (which == UI_DRAW_CONTROL_SLIDER) {
-        bool vertical = mode & UI_DRAW_CONTROL_STATE_VERTICAL;
+		bool vertical = mode & UI_DRAW_CONTROL_STATE_VERTICAL;
 		int center = vertical ? (bounds.l + bounds.r) / 2 : (bounds.t + bounds.b) / 2;
 		int trackSize = UI_SIZE_SLIDER_TRACK * scale;
 		int thumbSize = UI_SIZE_SLIDER_THUMB * scale;
