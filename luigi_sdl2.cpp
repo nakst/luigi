@@ -48,6 +48,7 @@ const int UI_KEYCODE_RIGHT = SDL_SCANCODE_RIGHT;
 const int UI_KEYCODE_SPACE = SDL_SCANCODE_SPACE;
 const int UI_KEYCODE_TAB = SDL_SCANCODE_TAB;
 const int UI_KEYCODE_UP = SDL_SCANCODE_UP;
+const int UI_KEYCODE_INSERT = SDL_SCANCODE_INSERT;
 
 SDL_Cursor *cursors[UI_CURSOR_COUNT];
 
@@ -122,6 +123,20 @@ void UISendSDLEvent(UIWindow *window, SDL_Event *event, SDL_Window *sdlWindow) {
 	}
 }
 
+void _UIClipboardWriteText(UIWindow *window, char *text) {
+	// TODO.
+}
+
+char *_UIClipboardReadTextStart(UIWindow *window, size_t *bytes) {
+	// TODO.
+	*bytes = 0;
+	return NULL;
+}
+
+void _UIClipboardReadTextEnd(UIWindow *window, char *text) {
+	// TODO.
+}
+
 UIWindow *UIInitialiseSDL() {
 	ui.theme = _uiThemeDark;
 
@@ -149,6 +164,57 @@ UIWindow *UIInitialiseSDL() {
 	ui.windows = window;
 
 	return window;
+}
+
+bool _UIMessageLoopSingle(int *result) {
+	*result = 0;
+	
+	SDL_Event event;
+
+	while (SDL_PollEvent(&event)) {
+		if (event.type == SDL_QUIT) {
+			return false;
+		}	
+
+		UISendSDLEvent(window, &event, sdlWindow);
+	}
+
+	if (ui.animating) {
+		_UIProcessAnimations();
+	}
+
+	glClear(GL_COLOR_BUFFER_BIT);
+
+	uint32_t selectedColor;
+	UIColorToRGB(colorPicker->hue, colorPicker->saturation, colorPicker->value, &selectedColor);
+	glDisable(GL_TEXTURE_2D);
+	glBegin(GL_TRIANGLES);
+	glColor4f(UI_COLOR_RED_F(selectedColor), UI_COLOR_GREEN_F(selectedColor), UI_COLOR_BLUE_F(selectedColor), 1);
+	glVertex2f(sliderX1->position * 2 - 1, sliderY1->position * 2 - 1);
+	glVertex2f(sliderX2->position * 2 - 1, sliderY2->position * 2 - 1);
+	glVertex2f(sliderX3->position * 2 - 1, sliderY3->position * 2 - 1);
+	glEnd();
+
+	GLuint texture;
+	glEnable(GL_TEXTURE_2D);
+	glGenTextures(1, &texture);
+	glBindTexture(GL_TEXTURE_2D, texture);
+	glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, window->width, window->height, 0, GL_BGRA_EXT, GL_UNSIGNED_BYTE, window->bits);
+	glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+	glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+	glBegin(GL_TRIANGLES);
+	glColor4f(1, 1, 1, 1);
+	glTexCoord2f(0, 1); glVertex2f(-1, -1);
+	glTexCoord2f(1, 1); glVertex2f(1, -1);
+	glTexCoord2f(0, 0); glVertex2f(-1, 1);
+	glTexCoord2f(1, 1); glVertex2f(1, -1);
+	glTexCoord2f(0, 0); glVertex2f(-1, 1);
+	glTexCoord2f(1, 0); glVertex2f(1, 1);
+	glEnd();
+	glDeleteTextures(1, &texture);
+
+	SDL_GL_SwapWindow(sdlWindow);
+	return true;
 }
 
 #ifdef _WIN32
@@ -204,55 +270,7 @@ int main(int argc, char **argv) {
 
 	_UIWindowUpdateSize(window, sdlWindow);
 
-	bool running = true;
-
-	while (running) {
-		SDL_Event event;
-
-		while (SDL_PollEvent(&event)) {
-			if (event.type == SDL_QUIT) {
-				running = false;
-			}	
-
-			UISendSDLEvent(window, &event, sdlWindow);
-		}
-
-		if (ui.animating) {
-			_UIProcessAnimations();
-		}
-
-		glClear(GL_COLOR_BUFFER_BIT);
-
-		uint32_t selectedColor;
-		UIColorToRGB(colorPicker->hue, colorPicker->saturation, colorPicker->value, &selectedColor);
-		glDisable(GL_TEXTURE_2D);
-		glBegin(GL_TRIANGLES);
-		glColor4f(UI_COLOR_RED_F(selectedColor), UI_COLOR_GREEN_F(selectedColor), UI_COLOR_BLUE_F(selectedColor), 1);
-		glVertex2f(sliderX1->position * 2 - 1, sliderY1->position * 2 - 1);
-		glVertex2f(sliderX2->position * 2 - 1, sliderY2->position * 2 - 1);
-		glVertex2f(sliderX3->position * 2 - 1, sliderY3->position * 2 - 1);
-		glEnd();
-
-		GLuint texture;
-		glEnable(GL_TEXTURE_2D);
-		glGenTextures(1, &texture);
-		glBindTexture(GL_TEXTURE_2D, texture);
-		glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, window->width, window->height, 0, GL_BGRA_EXT, GL_UNSIGNED_BYTE, window->bits);
-		glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
-		glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
-		glBegin(GL_TRIANGLES);
-		glColor4f(1, 1, 1, 1);
-		glTexCoord2f(0, 1); glVertex2f(-1, -1);
-		glTexCoord2f(1, 1); glVertex2f(1, -1);
-		glTexCoord2f(0, 0); glVertex2f(-1, 1);
-		glTexCoord2f(1, 1); glVertex2f(1, -1);
-		glTexCoord2f(0, 0); glVertex2f(-1, 1);
-		glTexCoord2f(1, 0); glVertex2f(1, 1);
-		glEnd();
-		glDeleteTextures(1, &texture);
-
-		SDL_GL_SwapWindow(sdlWindow);
-	}
-	
-	return 0;
+	int result;
+	while (_UIMessageLoopSingle(&result);
+	return result;
 }
