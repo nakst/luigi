@@ -51,6 +51,15 @@ const int UI_KEYCODE_UP = SDL_SCANCODE_UP;
 const int UI_KEYCODE_INSERT = SDL_SCANCODE_INSERT;
 
 SDL_Cursor *cursors[UI_CURSOR_COUNT];
+SDL_Window *sdlWindow;
+UIWindow *window;
+UIColorPicker *colorPicker;
+UISlider *sliderX1;
+UISlider *sliderX2;
+UISlider *sliderX3;
+UISlider *sliderY1;
+UISlider *sliderY2;
+UISlider *sliderY3;
 
 UIWindow *UIWindowCreate(UIWindow *owner, uint32_t flags, const char *cTitle, int width, int height) { 
 	return NULL; 
@@ -231,7 +240,7 @@ int main(int argc, char **argv) {
 	SDL_GL_SetAttribute(SDL_GL_BUFFER_SIZE, 32);
 	SDL_GL_SetAttribute(SDL_GL_DOUBLEBUFFER, 1);
 
-	SDL_Window *sdlWindow = SDL_CreateWindow("SDL Example", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, 
+	sdlWindow = SDL_CreateWindow("SDL Example", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, 
 		800, 600, SDL_WINDOW_OPENGL | SDL_WINDOW_RESIZABLE);
 	SDL_GLContext glContext = SDL_GL_CreateContext(sdlWindow);
 	SDL_GL_MakeCurrent(sdlWindow, glContext);
@@ -240,37 +249,37 @@ int main(int argc, char **argv) {
 	glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 	glClearColor(0, 0, 0, 1);
 
-	UIWindow *window = UIInitialiseSDL();
+	window = UIInitialiseSDL();
 	UIMDIClient *client = UIMDIClientCreate(&window->e, UI_MDI_CLIENT_TRANSPARENT);
 	UIMDIChild *child = UIMDIChildCreate(&client->e, 0, UI_RECT_4(10, 300, 10, 300), "Test Window", -1);
 
 	UIPanel *panel = UIPanelCreate(&child->e, UI_PANEL_GRAY | UI_PANEL_EXPAND | UI_PANEL_MEDIUM_SPACING | UI_PANEL_SCROLL | UI_ELEMENT_PARENT_PUSH);
 		UILabelCreate(0, 0, "Vertex 1", -1);
 		UIPanelCreate(0, UI_PANEL_HORIZONTAL | UI_PANEL_SMALL_SPACING | UI_ELEMENT_PARENT_PUSH);
-			UISlider *sliderX1 = UISliderCreate(0, UI_ELEMENT_H_FILL);
+			sliderX1 = UISliderCreate(0, UI_ELEMENT_H_FILL);
 			sliderX1->position = 0.5f;
-			UISlider *sliderY1 = UISliderCreate(0, UI_ELEMENT_H_FILL);
+			sliderY1 = UISliderCreate(0, UI_ELEMENT_H_FILL);
 			sliderY1->position = 1.0f;
 		UIParentPop();
 		UILabelCreate(0, 0, "Vertex 2", -1);
 		UIPanelCreate(0, UI_PANEL_HORIZONTAL | UI_PANEL_SMALL_SPACING | UI_ELEMENT_PARENT_PUSH);
-			UISlider *sliderX2 = UISliderCreate(0, UI_ELEMENT_H_FILL);
-			UISlider *sliderY2 = UISliderCreate(0, UI_ELEMENT_H_FILL);
+			sliderX2 = UISliderCreate(0, UI_ELEMENT_H_FILL);
+			sliderY2 = UISliderCreate(0, UI_ELEMENT_H_FILL);
 		UIParentPop();
 		UILabelCreate(0, 0, "Vertex 3", -1);
 		UIPanelCreate(0, UI_PANEL_HORIZONTAL | UI_PANEL_SMALL_SPACING | UI_ELEMENT_PARENT_PUSH);
-			UISlider *sliderX3 = UISliderCreate(0, UI_ELEMENT_H_FILL);
+			sliderX3 = UISliderCreate(0, UI_ELEMENT_H_FILL);
 			sliderX3->position = 1.0f;
-			UISlider *sliderY3 = UISliderCreate(0, UI_ELEMENT_H_FILL);
+			sliderY3 = UISliderCreate(0, UI_ELEMENT_H_FILL);
 		UIParentPop();
 		UILabelCreate(0, 0, "Color", -1);
-		UIColorPicker *colorPicker = UIColorPickerCreate(&UIPanelCreate(0, 0)->e, 0);
+		colorPicker = UIColorPickerCreate(&UIPanelCreate(0, 0)->e, 0);
 		colorPicker->value = 1;
 	UIParentPop();
 
 	_UIWindowUpdateSize(window, sdlWindow);
 
 	int result;
-	while (_UIMessageLoopSingle(&result);
+	while (_UIMessageLoopSingle(&result));
 	return result;
 }
