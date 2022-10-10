@@ -165,8 +165,8 @@ int WinMain(HINSTANCE instance, HINSTANCE previousInstance, LPSTR commandLine, i
 		slider_horiz->e.messageUser = MySliderHMessage;
 		UITextboxCreate(&panel->e, 0);
 		// Set default slider positions.
-		UISliderSetPosition(slider_vert, 0.1);
-		UISliderSetPosition(slider_horiz, 0.3);
+		UISliderSetPosition(slider_vert, 0.1, true);
+		UISliderSetPosition(slider_horiz, 0.3, true);
 	}
 
 	{

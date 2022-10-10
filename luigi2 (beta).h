@@ -582,7 +582,6 @@ typedef struct UIGauge {
 #define UI_GAUGE_VERTICAL (1 << 0)
 	UIElement e;
 	double position;
-	bool vertical;
 } UIGauge;
 
 typedef struct UITable {
@@ -619,7 +618,6 @@ typedef struct UISlider {
 	UIElement e;
 	double position;
 	int steps;
-	bool vertical;
 } UISlider;
 
 typedef struct UIColorPicker {
@@ -706,7 +704,7 @@ UIImageDisplay *UIImageDisplayCreate(UIElement *parent, uint32_t flags, uint32_t
 void UIImageDisplaySetContent(UIImageDisplay *display, uint32_t *bits, size_t width, size_t height, size_t stride);
 
 UISlider *UISliderCreate(UIElement *parent, uint32_t flags);
-void UISliderSetPosition(UISlider *slider, double value);
+void UISliderSetPosition(UISlider *slider, double value, bool sendChangedMessage);
 
 UISwitcher *UISwitcherCreate(UIElement *parent, uint32_t flags);
 void UISwitcherSwitchTo(UISwitcher *switcher, UIElement *child);
@@ -2813,15 +2811,15 @@ UICode *UICodeCreate(UIElement *parent, uint32_t flags) {
 
 int _UIGaugeMessage(UIElement *element, UIMessage message, int di, void *dp) {
 	UIGauge *gauge = (UIGauge *) element;
+	bool vertical = element->flags & UI_GAUGE_VERTICAL;
 
 	if (message == UI_MSG_GET_HEIGHT) {
-		return gauge->vertical ? UI_SIZE_GAUGE_WIDTH * element->window->scale : UI_SIZE_GAUGE_HEIGHT * element->window->scale;
+		return vertical ? UI_SIZE_GAUGE_WIDTH * element->window->scale : UI_SIZE_GAUGE_HEIGHT * element->window->scale;
 	} else if (message == UI_MSG_GET_WIDTH) {
-		return gauge->vertical ? UI_SIZE_GAUGE_HEIGHT * element->window->scale : UI_SIZE_GAUGE_WIDTH * element->window->scale;
+		return vertical ? UI_SIZE_GAUGE_HEIGHT * element->window->scale : UI_SIZE_GAUGE_WIDTH * element->window->scale;
 	} else if (message == UI_MSG_PAINT) {
-		UIDrawControl((UIPainter *) dp, element->bounds, UI_DRAW_CONTROL_GAUGE |
-				(gauge->vertical ? UI_DRAW_CONTROL_STATE_VERTICAL : 0) | UI_DRAW_CONTROL_STATE_FROM_ELEMENT(element),
-				NULL, 0, gauge->position, element->window->scale);
+		UIDrawControl((UIPainter *) dp, element->bounds, UI_DRAW_CONTROL_GAUGE | UI_DRAW_CONTROL_STATE_FROM_ELEMENT(element)
+				| (vertical ? UI_DRAW_CONTROL_STATE_VERTICAL : 0), NULL, 0, gauge->position, element->window->scale);
 	}
 
 	return 0;
@@ -2836,9 +2834,7 @@ void UIGaugeSetPosition(UIGauge *gauge, double position) {
 }
 
 UIGauge *UIGaugeCreate(UIElement *parent, uint32_t flags) {
-	UIGauge *guage = (UIGauge *) UIElementCreate(sizeof(UIGauge), parent, flags, _UIGaugeMessage, "Gauge");
-	guage->vertical = flags & UI_GAUGE_VERTICAL;
-	return guage;
+	return (UIGauge *) UIElementCreate(sizeof(UIGauge), parent, flags, _UIGaugeMessage, "Gauge");
 }
 
 /////////////////////////////////////////
@@ -2847,24 +2843,22 @@ UIGauge *UIGaugeCreate(UIElement *parent, uint32_t flags) {
 
 int _UISliderMessage(UIElement *element, UIMessage message, int di, void *dp) {
 	UISlider *slider = (UISlider *) element;
+	bool vertical = element->flags & UI_SLIDER_VERTICAL;
 
 	if (message == UI_MSG_GET_HEIGHT) {
-		return slider->vertical ? UI_SIZE_SLIDER_WIDTH * element->window->scale : UI_SIZE_SLIDER_HEIGHT * element->window->scale;
+		return vertical ? UI_SIZE_SLIDER_WIDTH * element->window->scale : UI_SIZE_SLIDER_HEIGHT * element->window->scale;
 	} else if (message == UI_MSG_GET_WIDTH) {
-		return slider->vertical ? UI_SIZE_SLIDER_HEIGHT * element->window->scale : UI_SIZE_SLIDER_WIDTH * element->window->scale;
+		return vertical ? UI_SIZE_SLIDER_HEIGHT * element->window->scale : UI_SIZE_SLIDER_WIDTH * element->window->scale;
 	} else if (message == UI_MSG_PAINT) {
 		UIDrawControl((UIPainter *) dp, element->bounds, UI_DRAW_CONTROL_SLIDER |
-				(slider->vertical ? UI_DRAW_CONTROL_STATE_VERTICAL : 0) | UI_DRAW_CONTROL_STATE_FROM_ELEMENT(element),
+				(vertical ? UI_DRAW_CONTROL_STATE_VERTICAL : 0) | UI_DRAW_CONTROL_STATE_FROM_ELEMENT(element),
 				NULL, 0, slider->position, element->window->scale);
 	} else if (message == UI_MSG_LEFT_DOWN || (message == UI_MSG_MOUSE_DRAG && element->window->pressedButton == 1)) {
 		UIRectangle bounds = element->bounds;
 		int thumbSize = UI_SIZE_SLIDER_THUMB * element->window->scale;
-		slider->position = slider->vertical ? 1-((float) (element->window->cursorY - thumbSize / 2 - bounds.t) / (UI_RECT_HEIGHT(bounds) - thumbSize)) :
-												(double) (element->window->cursorX - thumbSize / 2 - bounds.l) / (UI_RECT_WIDTH(bounds) - thumbSize);
-		if (slider->steps > 1) slider->position = (int) (slider->position * (slider->steps - 1) + 0.5f) / (double) (slider->steps - 1);
-		if (slider->position < 0) slider->position = 0;
-		if (slider->position > 1) slider->position = 1;
-		UIElementMessage(element, UI_MSG_VALUE_CHANGED, 0, 0);
+		double position = vertical ? 1 - ((float) (element->window->cursorY - thumbSize / 2 - bounds.t) / (UI_RECT_HEIGHT(bounds) - thumbSize)) 
+			: (double) (element->window->cursorX - thumbSize / 2 - bounds.l) / (UI_RECT_WIDTH(bounds) - thumbSize);
+		UISliderSetPosition(slider, position, true);
 		UIElementRepaint(element, NULL);
 	} else if (message == UI_MSG_UPDATE) {
 		UIElementRepaint(element, NULL);
@@ -2873,20 +2867,18 @@ int _UISliderMessage(UIElement *element, UIMessage message, int di, void *dp) {
 	return 0;
 }
 
-void UISliderSetPosition(UISlider *slider, double position) {
+void UISliderSetPosition(UISlider *slider, double position, bool sendChangedMessage) {
 	if (position == slider->position) return;
-	if (slider->steps > 1) slider->position = (int) (slider->position * (slider->steps - 1) + 0.5f) / (float) (slider->steps - 1);
+	if (slider->steps > 1) position = (int) (position * (slider->steps - 1) + 0.5f) / (float) (slider->steps - 1);
 	if (position < 0) position = 0;
 	if (position > 1) position = 1;
 	slider->position = position;
-	UIElementMessage(&slider->e, UI_MSG_VALUE_CHANGED, 0, 0);
+	if (sendChangedMessage) UIElementMessage(&slider->e, UI_MSG_VALUE_CHANGED, 0, 0);
 	UIElementRepaint(&slider->e, NULL);
 }
 
 UISlider *UISliderCreate(UIElement *parent, uint32_t flags) {
-	UISlider *slider = (UISlider *) UIElementCreate(sizeof(UISlider), parent, flags, _UISliderMessage, "Slider");
-	slider->vertical = flags & UI_SLIDER_VERTICAL;
-	return slider;
+	return (UISlider *) UIElementCreate(sizeof(UISlider), parent, flags, _UISliderMessage, "Slider");
 }
 
 /////////////////////////////////////////
