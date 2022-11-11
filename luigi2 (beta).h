@@ -5312,7 +5312,9 @@ bool _UIProcessEvent(XEvent *event) {
 		} else if (event->xkey.keycode == window->altCode) {
 			window->alt = false;
 			_UIWindowInputEvent(window, UI_MSG_MOUSE_MOVE, 0, 0);
-		} else {
+		} 
+		
+		{
 			char text[32];
 			KeySym symbol = NoSymbol;
 			Status status;
