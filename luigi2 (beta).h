@@ -593,6 +593,7 @@ typedef struct UITable {
 } UITable;
 
 typedef struct UITextbox {
+#define UI_TEXTBOX_HIDE_CHARACTERS (1 << 0)
 	UIElement e;
 	char *string;
 	ptrdiff_t bytes;
@@ -643,13 +644,6 @@ typedef struct UIMDIChild {
 	UIRectangle dragOffset;
 } UIMDIChild;
 
-typedef struct UIExpandPane {
-	UIElement e;
-	UIButton *button;
-	UIPanel *panel;
-	bool expanded;
-} UIExpandPane;
-
 typedef struct UIImageDisplay {
 #define UI_IMAGE_DISPLAY_INTERACTIVE (1 << 0)
 #define _UI_IMAGE_DISPLAY_ZOOM_FIT (1 << 1)
@@ -681,7 +675,6 @@ UIElement *UIElementCreate(size_t bytes, UIElement *parent, uint32_t flags,
 
 UICheckbox *UICheckboxCreate(UIElement *parent, uint32_t flags, const char *label, ptrdiff_t labelBytes);
 UIColorPicker *UIColorPickerCreate(UIElement *parent, uint32_t flags);
-UIExpandPane *UIExpandPaneCreate(UIElement *parent, uint32_t flags, const char *label, ptrdiff_t labelBytes, uint32_t panelFlags);
 UIMDIClient *UIMDIClientCreate(UIElement *parent, uint32_t flags);
 UIMDIChild *UIMDIChildCreate(UIElement *parent, uint32_t flags, UIRectangle initialBounds, const char *title, ptrdiff_t titleBytes);
 UIPanel *UIPanelCreate(UIElement *parent, uint32_t flags);
@@ -3170,7 +3163,9 @@ int _UITextboxMessage(UIElement *element, UIMessage message, int di, void *dp) {
 	} else if (message == UI_MSG_GET_WIDTH) {
 		return UI_SIZE_TEXTBOX_WIDTH * element->window->scale;
 	} else if (message == UI_MSG_PAINT) {
-		UIDrawControl((UIPainter *) dp, element->bounds, UI_DRAW_CONTROL_TEXTBOX | UI_DRAW_CONTROL_STATE_FROM_ELEMENT(element), 
+		UIPainter *painter = (UIPainter *) dp;
+
+		UIDrawControl(painter, element->bounds, UI_DRAW_CONTROL_TEXTBOX | UI_DRAW_CONTROL_STATE_FROM_ELEMENT(element), 
 				NULL, 0, 0, element->window->scale);
 
 		int scaledMargin = UI_SIZE_TEXTBOX_MARGIN * element->window->scale;
@@ -3193,20 +3188,40 @@ int _UITextboxMessage(UIElement *element, UIMessage message, int di, void *dp) {
 			textbox->scroll = caretX - UI_RECT_WIDTH(textBounds) + textbox->scroll + 1;
 		}
 
-#ifdef __cplusplus
-		UIStringSelection selection = {};
-#else
-		UIStringSelection selection = { 0 };
-#endif
-		selection.carets[0] = textbox->carets[0];
-		selection.carets[1] = textbox->carets[1];
-		selection.colorBackground = ui.theme.selected;
-		selection.colorText = ui.theme.textSelected;
+		UIRectangle oldClip = painter->clip;
 		textBounds.l -= textbox->scroll;
+		painter->clip = UIRectangleIntersection(textBounds, oldClip);
+		bool focused = element->window->focused == element;
 
-		UIDrawString((UIPainter *) dp, textBounds, textbox->string, textbox->bytes, 
-			(element->flags & UI_ELEMENT_DISABLED) ? ui.theme.textDisabled : ui.theme.text, UI_ALIGN_LEFT, 
-			element->window->focused == element ? &selection : NULL);
+		if (UI_RECT_VALID(painter->clip)) {
+			int width = UIMeasureStringWidth(textbox->string, textbox->bytes);
+			int height = UIMeasureStringHeight();
+			int x = textBounds.l;
+			int y = (textBounds.t + textBounds.b - height) / 2;
+			int i = 0, j = 0;
+
+			int selectFrom = focused ? textbox->carets[0] : -1, selectTo = focused ? textbox->carets[1] : -1;
+			if (selectFrom > selectTo) { UI_SWAP(int, selectFrom, selectTo); }
+
+			for (; j < textbox->bytes; j++) {
+				char c = textbox->string[j];
+				uint32_t colorText = (element->flags & UI_ELEMENT_DISABLED) ? ui.theme.textDisabled : ui.theme.text;
+
+				if (j >= selectFrom && j < selectTo) {
+					UIDrawBlock(painter, UI_RECT_4(x, x + ui.activeFont->glyphWidth, y, y + height), ui.theme.selected);
+					colorText = ui.theme.textSelected;
+				}
+
+				if (c != '\t') { UIDrawGlyph(painter, x, y, element->flags & UI_TEXTBOX_HIDE_CHARACTERS ? '*' : c, colorText); }
+				if (focused && textbox->carets[0] == j) { UIDrawInvert(painter, UI_RECT_4(x, x + 1, y, y + height)); }
+				x += ui.activeFont->glyphWidth, i++;
+				if (c == '\t') { while (i & 3) x += ui.activeFont->glyphWidth, i++; }
+			}
+
+			if (focused && textbox->carets[0] == j) { UIDrawInvert(painter, UI_RECT_4(x, x + 1, y, y + height)); }
+		}
+
+		painter->clip = oldClip;
 	} else if (message == UI_MSG_GET_CURSOR) {
 		return UI_CURSOR_TEXT;
 	} else if (message == UI_MSG_LEFT_DOWN) {
