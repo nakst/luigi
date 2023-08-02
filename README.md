@@ -16,8 +16,8 @@ Various utility applications:
 
 ## Bindings for other languages
 
-Nim: https://github.com/neroist/luigi (MIT)
-Teak: https://github.com/nakst/teak/tree/master/modules/luigi (MIT; incomplete)
+- Nim: https://github.com/neroist/luigi (MIT)
+- Teak: https://github.com/nakst/teak/tree/master/modules/luigi (MIT; incomplete)
 
 ## Building the example
 
