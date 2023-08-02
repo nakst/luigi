@@ -14,9 +14,10 @@ GDB frontend, https://github.com/nakst/gf/
 Various utility applications:
 ![Screenshot of a font editor, directory size viewer, image viewer, configuration editor, and a unit converter.](https://raw.githubusercontent.com/nakst/cdn/main/utils.jpg)
 
-## Bindings
+## Bindings for other languages
 
-Nim bindings - https://github.com/neroist/luigi
+Nim: https://github.com/neroist/luigi (MIT)
+Teak: https://github.com/nakst/teak/tree/master/modules/luigi (MIT; incomplete)
 
 ## Building the example
 
