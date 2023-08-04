@@ -25,6 +25,7 @@
 #undef _UNICODE
 #undef UNICODE
 #include <windows.h>
+#include <shellapi.h>
 
 #define UI_ASSERT(x) do { if (!(x)) { ui.assertionFailure = true; \
 	MessageBox(0, "Assertion failure on line " _UI_TO_STRING_2(__LINE__), 0, 0); \
