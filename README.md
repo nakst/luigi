@@ -26,7 +26,7 @@ Various utility applications:
 Update `luigi_example.c` to `#define UI_WINDOWS` at the top of the file, and then run the following command in a Visual Studio command prompt:
 
 ```
-cl /O2 luigi_example.c user32.lib gdi32.lib
+cl /O2 luigi_example.c user32.lib gdi32.lib shell32.lib
 ```
 
 ### Linux
