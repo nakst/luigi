@@ -271,6 +271,7 @@ uint64_t UIAnimateClock(); // In ms.
 // Creating elements.
 UIElement     *UIElementCreate(size_t bytes, UIElement *parent, uint32_t flags, int (*messageClass)(UIElement *, UIMessage, int, void *), const char *cClassName);
 UIButton      *UIButtonCreate(UIElement *parent, uint32_t flags, const char *label, ptrdiff_t labelBytes);
+UICheckbox    *UICheckboxCreate(UIElement *parent, uint32_t flags, const char *label, ptrdiff_t labelBytes);
 UICode        *UICodeCreate(UIElement *parent, uint32_t flags);
 UIColorPicker *UIColorPickerCreate(UIElement *parent, uint32_t flags);
 UIGauge       *UIGaugeCreate(UIElement *parent, uint32_t flags);
