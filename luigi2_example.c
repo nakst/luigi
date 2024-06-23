@@ -17,6 +17,8 @@ UISlider *slider_vert;
 UIGauge *gauge_vert1;
 UIGauge *gauge_vert2;
 
+UICheckbox *check_delete;
+
 const char *themeItems[] = {
 	"panel1", 
 	"panel2",
@@ -43,9 +45,18 @@ const char *themeItems[] = {
 
 int MyButtonMessage(UIElement *element, UIMessage message, int di, void *dp) {
 	if (message == UI_MSG_CLICKED) {
-		printf("clicked!\n");
-		UIElementDestroy(element);
-		UIElementRefresh(element->parent);
+		printf("clicked button '%.*s'...", ((UIButton *) element)->labelBytes, ((UIButton *) element)->label);
+		// Note, the printf specifier %.*s expects an 'int', while labelBytes
+		// is a 'ptrdiff_t'. Compilers may warn about this implicit casting,
+		// however for this example (and in general) the number of characters
+		// in a label will not exceed the maximum value of an 'int'.
+		if (check_delete->check == UI_CHECK_CHECKED) {
+			UIElementDestroy(element);
+			UIElementRefresh(element->parent);
+			printf(" and deleted it!\n");
+		} else {
+			printf(" but not deleted!\n");
+		}
 	}
 
 	return 0;
@@ -115,6 +126,22 @@ int MyTableMessage(UIElement *element, UIMessage message, int di, void *dp) {
 
 	return 0;
 }
+
+int MyCheckboxMessage(UIElement *element, UIMessage message, int di, void *dp) {
+	if (message == UI_MSG_CLICKED) {
+		const char *labelOn = "On";
+		const char *labelOff = "Off";
+		UICheckboxSetLabel((UICheckbox *) element, ((UICheckbox *) element)->check == UI_CHECK_CHECKED ? labelOff : labelOn, -1);
+		// Note, because this message function is run when the checkbox is
+		// clicked _before_ the main checkbox update message is executed, the
+		// UICheckbox->check is in the state _prior_ to the update taking place.
+		// Consider the operation here to mean:
+		//  "if the state _was_ UI_CHECK_CHECKED then now set the label to..."
+	}
+
+	return 0;
+}
+
 
 #ifdef UI_LINUX
 int main(int argc, char **argv) {
@@ -195,13 +222,19 @@ int WinMain(HINSTANCE instance, HINSTANCE previousInstance, LPSTR commandLine, i
 
 	{
 		// Bottom-Right pane.
-		UITabPane *tabPane = UITabPaneCreate(&uisplit_bottom_leftright->e, 0, "Tab 1\tMiddle Tab\tTab 3");
+		UITabPane *tabPane = UITabPaneCreate(&uisplit_bottom_leftright->e, 0, "Tab 1\tMiddle Tab\tSettings");
+		// First tab in tabPane
 		UITable *table = UITableCreate(&tabPane->e, 0, "Column 1\tColumn 2");
 		table->itemCount = 100000;
 		table->e.messageUser = MyTableMessage;
 		UITableResizeColumns(table);
+		// Second tab
 		UILabelCreate(&UIPanelCreate(&tabPane->e, UI_PANEL_COLOR_1)->e, 0, "you're in tab 2, bucko", -1);
-		UILabelCreate(&UIPanelCreate(&tabPane->e, UI_PANEL_COLOR_1)->e, 0, "hiii!!!", -1);
+		// Third tab
+		UIPanel *settingsPanel = UIPanelCreate(&tabPane->e, UI_PANEL_COLOR_1 | UI_PANEL_MEDIUM_SPACING | UI_PANEL_HORIZONTAL);
+		UILabelCreate(&settingsPanel->e, 0, "Delete top-left panel buttons on click:", -1);
+		check_delete = UICheckboxCreate(&settingsPanel->e, 0, "Off", -1);
+		check_delete->e.messageUser = MyCheckboxMessage;
 	}
 
 	UIWindowRegisterShortcut(window, (UIShortcut) { .code = UI_KEYCODE_LETTER('T'), .ctrl = true, .invoke = MyMenuCallback, .cp = (void *) "Keyboard shortcut!" });
