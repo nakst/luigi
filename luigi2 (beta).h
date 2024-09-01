@@ -316,37 +316,37 @@ typedef struct UICodeDecorateLine {
 #ifndef UI_DRAW_CONTROL_CUSTOM
 #define UIDrawControl UIDrawControlDefault
 #endif
-#define UI_DRAW_CONTROL_PUSH_BUTTON          (1)
-#define UI_DRAW_CONTROL_DROP_DOWN            (2)
-#define UI_DRAW_CONTROL_MENU_ITEM            (3)
-#define UI_DRAW_CONTROL_CHECKBOX             (4)
-#define UI_DRAW_CONTROL_LABEL                (5)
-#define UI_DRAW_CONTROL_SPLITTER             (6)
-#define UI_DRAW_CONTROL_SCROLL_TRACK         (7)
-#define UI_DRAW_CONTROL_SCROLL_UP            (8)
-#define UI_DRAW_CONTROL_SCROLL_DOWN          (9)
-#define UI_DRAW_CONTROL_SCROLL_THUMB        (10)
-#define UI_DRAW_CONTROL_GAUGE               (11)
-#define UI_DRAW_CONTROL_SLIDER              (12)
-#define UI_DRAW_CONTROL_TEXTBOX             (13)
-#define UI_DRAW_CONTROL_MODAL_POPUP         (14)
-#define UI_DRAW_CONTROL_MENU                (15)
-#define UI_DRAW_CONTROL_TABLE_ROW           (16)
-#define UI_DRAW_CONTROL_TABLE_CELL          (17)
-#define UI_DRAW_CONTROL_TABLE_BACKGROUND    (18)
-#define UI_DRAW_CONTROL_TABLE_HEADER        (19)
-#define UI_DRAW_CONTROL_MDI_CHILD           (20)
-#define UI_DRAW_CONTROL_TAB                 (21)
-#define UI_DRAW_CONTROL_TAB_BAND            (22)
-#define UI_DRAW_CONTROL_TYPE_MASK           (0xFF)
-#define UI_DRAW_CONTROL_STATE_SELECTED      (1 << 24)
-#define UI_DRAW_CONTROL_STATE_VERTICAL      (1 << 25)
-#define UI_DRAW_CONTROL_STATE_INDETERMINATE (1 << 26)
-#define UI_DRAW_CONTROL_STATE_CHECKED       (1 << 27)
-#define UI_DRAW_CONTROL_STATE_HOVERED       (1 << 28)
-#define UI_DRAW_CONTROL_STATE_FOCUSED       (1 << 29)
-#define UI_DRAW_CONTROL_STATE_PRESSED       (1 << 30)
-#define UI_DRAW_CONTROL_STATE_DISABLED      (1 << 31)
+#define UI_DRAW_CONTROL_PUSH_BUTTON          (1U)
+#define UI_DRAW_CONTROL_MENU_ITEM            (3U)
+#define UI_DRAW_CONTROL_CHECKBOX             (4U)
+#define UI_DRAW_CONTROL_DROP_DOWN            (2U)
+#define UI_DRAW_CONTROL_LABEL                (5U)
+#define UI_DRAW_CONTROL_SPLITTER             (6U)
+#define UI_DRAW_CONTROL_SCROLL_TRACK         (7U)
+#define UI_DRAW_CONTROL_SCROLL_UP            (8U)
+#define UI_DRAW_CONTROL_SCROLL_DOWN          (9U)
+#define UI_DRAW_CONTROL_SCROLL_THUMB        (10U)
+#define UI_DRAW_CONTROL_GAUGE               (11U)
+#define UI_DRAW_CONTROL_SLIDER              (12U)
+#define UI_DRAW_CONTROL_TEXTBOX             (13U)
+#define UI_DRAW_CONTROL_MODAL_POPUP         (14U)
+#define UI_DRAW_CONTROL_MENU                (15U)
+#define UI_DRAW_CONTROL_TABLE_ROW           (16U)
+#define UI_DRAW_CONTROL_TABLE_CELL          (17U)
+#define UI_DRAW_CONTROL_TABLE_BACKGROUND    (18U)
+#define UI_DRAW_CONTROL_TABLE_HEADER        (19U)
+#define UI_DRAW_CONTROL_MDI_CHILD           (20U)
+#define UI_DRAW_CONTROL_TAB                 (21U)
+#define UI_DRAW_CONTROL_TAB_BAND            (22U)
+#define UI_DRAW_CONTROL_TYPE_MASK           (0xFFU)
+#define UI_DRAW_CONTROL_STATE_SELECTED      (1U << 24)
+#define UI_DRAW_CONTROL_STATE_VERTICAL      (1U << 25)
+#define UI_DRAW_CONTROL_STATE_INDETERMINATE (1U << 26)
+#define UI_DRAW_CONTROL_STATE_CHECKED       (1U << 27)
+#define UI_DRAW_CONTROL_STATE_HOVERED       (1U << 28)
+#define UI_DRAW_CONTROL_STATE_FOCUSED       (1U << 29)
+#define UI_DRAW_CONTROL_STATE_PRESSED       (1U << 30)
+#define UI_DRAW_CONTROL_STATE_DISABLED      (1U << 31)
 #define UI_DRAW_CONTROL_STATE_FROM_ELEMENT(x) ((((x)->flags & UI_ELEMENT_DISABLED) ? UI_DRAW_CONTROL_STATE_DISABLED : 0) \
 		| (((x)->window->hovered == (x)) ? UI_DRAW_CONTROL_STATE_HOVERED : 0) \
 		| (((x)->window->focused == (x)) ? UI_DRAW_CONTROL_STATE_FOCUSED : 0) \
@@ -397,20 +397,20 @@ extern const int UI_KEYCODE_0;
 #define UI_ELEMENT_FILL (UI_ELEMENT_V_FILL | UI_ELEMENT_H_FILL)
 
 typedef struct UIElement {
-#define UI_ELEMENT_V_FILL (1 << 16)
-#define UI_ELEMENT_H_FILL (1 << 17)
-#define UI_ELEMENT_WINDOW (1 << 18)
-#define UI_ELEMENT_PARENT_PUSH (1 << 19)
-#define UI_ELEMENT_TAB_STOP (1 << 20)
-#define UI_ELEMENT_NON_CLIENT (1 << 21) // Don't destroy in UIElementDestroyDescendents, like scroll bars.
-#define UI_ELEMENT_DISABLED (1 << 22) // Don't receive input events.
-#define UI_ELEMENT_BORDER (1 << 23)
+#define UI_ELEMENT_V_FILL (1U << 16)
+#define UI_ELEMENT_H_FILL (1U << 17)
+#define UI_ELEMENT_WINDOW (1U << 18)
+#define UI_ELEMENT_PARENT_PUSH (1U << 19)
+#define UI_ELEMENT_TAB_STOP (1U << 20)
+#define UI_ELEMENT_NON_CLIENT (1U << 21) // Don't destroy in UIElementDestroyDescendents, like scroll bars.
+#define UI_ELEMENT_DISABLED (1U << 22) // Don't receive input events.
+#define UI_ELEMENT_BORDER (1U << 23)
 
-#define UI_ELEMENT_HIDE (1 << 27)
-#define UI_ELEMENT_RELAYOUT (1 << 28)
-#define UI_ELEMENT_RELAYOUT_DESCENDENT (1 << 29)
-#define UI_ELEMENT_DESTROY (1 << 30)
-#define UI_ELEMENT_DESTROY_DESCENDENT (1 << 31)
+#define UI_ELEMENT_HIDE (1U << 27)
+#define UI_ELEMENT_RELAYOUT (1U << 28)
+#define UI_ELEMENT_RELAYOUT_DESCENDENT (1U << 29)
+#define UI_ELEMENT_DESTROY (1U << 30)
+#define UI_ELEMENT_DESTROY_DESCENDENT (1U << 31)
 
 	uint32_t flags; // First 16 bits are element specific.
 	uint32_t id;
@@ -990,7 +990,7 @@ UIRectangle UIRectangleFit(UIRectangle parent, UIRectangle child, bool allowScal
 		return UIRectangleCenter(parent, child);
 	}
 
-	float childAspectRatio = (float) childWidth / childHeight;
+	float childAspectRatio = (float) childWidth / (float)childHeight;
 	int childMaximumWidth = parentHeight * childAspectRatio;
 	int childMaximumHeight = parentWidth / childAspectRatio;
 
@@ -3111,11 +3111,17 @@ void UITextboxReplace(UITextbox *textbox, const char *text, ptrdiff_t bytes, boo
 	int deleteFrom = textbox->carets[0], deleteTo = textbox->carets[1];
 	if (deleteFrom > deleteTo) UI_SWAP(int, deleteFrom, deleteTo);
 
-	UI_MEMMOVE(&textbox->string[deleteFrom], &textbox->string[deleteTo], textbox->bytes - deleteTo);
+	if (textbox->string) {
+		UI_MEMMOVE(&textbox->string[deleteFrom], &textbox->string[deleteTo], textbox->bytes - deleteTo);
+	}
 	textbox->bytes -= deleteTo - deleteFrom;
 	textbox->string = (char *) UI_REALLOC(textbox->string, textbox->bytes + bytes);
-	UI_MEMMOVE(&textbox->string[deleteFrom + bytes], &textbox->string[deleteFrom], textbox->bytes - deleteFrom);
-	UI_MEMMOVE(&textbox->string[deleteFrom], &text[0], bytes);
+	if (textbox->string) {
+		UI_MEMMOVE(&textbox->string[deleteFrom + bytes], &textbox->string[deleteFrom], textbox->bytes - deleteFrom);
+	}
+	if (textbox->string) {
+		UI_MEMMOVE(&textbox->string[deleteFrom], &text[0], bytes);
+	}
 	textbox->bytes += bytes;
 	textbox->carets[0] = deleteFrom + bytes;
 	textbox->carets[1] = textbox->carets[0];
@@ -3195,7 +3201,6 @@ int _UITextboxMessage(UIElement *element, UIMessage message, int di, void *dp) {
 		bool focused = element->window->focused == element;
 
 		if (UI_RECT_VALID(painter->clip)) {
-			int width = UIMeasureStringWidth(textbox->string, textbox->bytes);
 			int height = UIMeasureStringHeight();
 			int x = textBounds.l;
 			int y = (textBounds.t + textBounds.b - height) / 2;
