@@ -4104,35 +4104,6 @@ int _UIImageDisplayMessage(UIElement *element, UIMessage message, int di, void *
 		UIRectangle bounds = UIRectangleIntersection(painter->clip, UIRectangleIntersection(display->e.bounds, image));
 		if (!UI_RECT_VALID(bounds)) return 0;
 
-		if (display->zoom == 1) {
-			uint32_t *lineStart = (uint32_t *) painter->bits + bounds.t * painter->width + bounds.l;
-			uint32_t *sourceLineStart = display->bits + (bounds.l - image.l) + display->width * (bounds.t - image.t);
-
-			for (int i = 0; i < bounds.b - bounds.t; i++, lineStart += painter->width, sourceLineStart += display->width) {
-				uint32_t *destination = lineStart;
-				uint32_t *source = sourceLineStart;
-				int j = bounds.r - bounds.l;
-
-				do {
-					*destination = *source;
-					destination++;
-					source++;
-				} while (--j);
-			}
-		} else if (element->flags & UI_IMAGE_DISPLAY_HQ_ZOOM_IN) {
-			float zr = 1.0f / display->zoom;
-			uint32_t *destination = (uint32_t *) painter->bits;
-
-			for (int i = bounds.t; i < bounds.b; i++) {
-				float ty = (i - image.t) * zr - 0.5f;
-				int ty0 = floorf(ty);
-				int ty1 = ceilf(ty);
-				float tyf = ty - floorf(ty);
-				if (ty0 < 0) { ty0 = ty1; }
-				if (ty1 >= display->height) { ty1 = ty0; }
-
-				int j = bounds.l;
-
 #ifdef UI_AVX512
 
 #define VCOUNT (16)
@@ -4166,6 +4137,49 @@ int _UIImageDisplayMessage(UIElement *element, UIMessage message, int di, void *
 #define VILoad(base, index) _mm512_i32gather_epi32((index), (base), VSIZE)
 #define VIStore(base, index, value) _mm512_i32scatter_epi32((base), (index), (value), VSIZE)
 
+#endif
+
+		if (display->zoom == 1) {
+			uint32_t *lineStart = (uint32_t *) painter->bits + bounds.t * painter->width + bounds.l;
+			uint32_t *sourceLineStart = display->bits + (bounds.l - image.l) + display->width * (bounds.t - image.t);
+
+			for (int i = 0; i < bounds.b - bounds.t; i++, lineStart += painter->width, sourceLineStart += display->width) {
+				uint32_t *destination = lineStart;
+				uint32_t *source = sourceLineStart;
+				int j = bounds.r - bounds.l;
+
+#ifdef UI_AVX512
+				vint index = VISetN(0);
+
+				while (j >= VCOUNT) {
+					VIStore(destination, index, VILoad(source, index));
+					j -= VCOUNT;
+					destination += VCOUNT;
+					source += VCOUNT;
+				}
+#endif
+
+				do {
+					*destination = *source;
+					destination++;
+					source++;
+				} while (--j);
+			}
+		} else if (element->flags & UI_IMAGE_DISPLAY_HQ_ZOOM_IN) {
+			float zr = 1.0f / display->zoom;
+			uint32_t *destination = (uint32_t *) painter->bits;
+
+			for (int i = bounds.t; i < bounds.b; i++) {
+				float ty = (i - image.t) * zr - 0.5f;
+				int ty0 = floorf(ty);
+				int ty1 = ceilf(ty);
+				float tyf = ty - floorf(ty);
+				if (ty0 < 0) { ty0 = ty1; }
+				if (ty1 >= display->height) { ty1 = ty0; }
+
+				int j = bounds.l;
+
+#ifdef UI_AVX512
 				int j0 = j - image.l;
 				vfloat J = VFSetN(j0);
 				vint Ji = VISetN(j);
@@ -4239,10 +4253,26 @@ int _UIImageDisplayMessage(UIElement *element, UIMessage message, int di, void *
 
 			for (int i = bounds.t; i < bounds.b; i++) {
 				int ty = (i - image.t) * zr;
+				int j = bounds.l;
 
-				for (int j = bounds.l; j < bounds.r; j++) {
+#ifdef UI_AVX512
+				vint J = VISetN(j);
+				vfloat J0 = VFSetN(j - image.l);
+
+				while (j <= bounds.r - VCOUNT) {
+					vint tx = VFRoundZero(VFMul(J0, VFSet1(zr)));
+					VIStore(destination + i * painter->width, J,
+							VILoad(display->bits + ty * display->width, tx));
+					j += VCOUNT;
+					J += VISet1(VCOUNT);
+					J0 += VFSet1(VCOUNT);
+				}
+#endif
+
+				while (j <= bounds.r - 1) {
 					int tx = (j - image.l) * zr;
 					destination[i * painter->width + j] = display->bits[ty * display->width + tx];
+					j++;
 				}
 			}
 		}
@@ -5306,12 +5336,12 @@ void UIFontDestroy(UIFont *font) {
 	}
 
 	FT_Done_Face(font->font);
-	HeapFree(font->glyphs);
-	HeapFree(font->glyphsRendered);
-	HeapFree(font->glyphOffsetsX);
-	HeapFree(font->glyphOffsetsY);
-	HeapFree(font->glyphAdvance);
-	HeapFree(font);
+	UI_FREE(font->glyphs);
+	UI_FREE(font->glyphsRendered);
+	UI_FREE(font->glyphOffsetsX);
+	UI_FREE(font->glyphOffsetsY);
+	UI_FREE(font->glyphAdvance);
+	UI_FREE(font);
 }
 
 UIFont *UIFontCreate(const char *cPath, uint32_t size) {
