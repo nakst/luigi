@@ -495,7 +495,10 @@ typedef struct UIWindow {
 	XImage *image;
 	XIC xic;
 	unsigned ctrlCode, shiftCode, altCode;
-	Window dragSource;
+	Window dragSource, dragDestination;
+	int dragDestinationVersion;
+	bool inDrag, dragDestinationCanDrop;
+	char *uriList;
 #endif
 
 #ifdef UI_WINDOWS
@@ -1026,7 +1029,8 @@ struct {
 	Visual *visual;
 	XIM xim;
 	Atom windowClosedID, primaryID, uriListID, plainTextID;
-	Atom dndEnterID, dndPositionID, dndStatusID, dndActionCopyID, dndDropID, dndSelectionID, dndFinishedID, dndAwareID;
+	Atom dndEnterID, dndLeaveID, dndTypeListID, dndPositionID, dndStatusID,
+	     dndActionCopyID, dndDropID, dndSelectionID, dndFinishedID, dndAwareID;
 	Atom clipboardID, xSelectionDataID, textID, targetID, incrID;
 	Cursor cursors[UI_CURSOR_COUNT];
 	char *pasteText;
@@ -4159,11 +4163,12 @@ int _UIImageDisplayMessage(UIElement *element, UIMessage message, int di, void *
 				}
 #endif
 
-				do {
+				while (j) {
 					*destination = *source;
+					j--;
 					destination++;
 					source++;
-				} while (--j);
+				}
 			}
 		} else if (element->flags & UI_IMAGE_DISPLAY_HQ_ZOOM_IN) {
 			float zr = 1.0f / display->zoom;
@@ -5704,6 +5709,7 @@ int _UIWindowMessage(UIElement *element, UIMessage message, int di, void *dp) {
 		XDestroyImage(window->image);
 		XDestroyIC(window->xic);
 		XDestroyWindow(ui.display, ((UIWindow *) element)->window);
+		UI_FREE(window->uriList);
 	}
 
 	return _UIWindowMessageCommon(element, message, di, dp);
@@ -5881,6 +5887,8 @@ void UIInitialise() {
 	ui.windowClosedID = XInternAtom(ui.display, "WM_DELETE_WINDOW", 0);
 	ui.primaryID = XInternAtom(ui.display, "PRIMARY", 0);
 	ui.dndEnterID = XInternAtom(ui.display, "XdndEnter", 0);
+	ui.dndLeaveID = XInternAtom(ui.display, "XdndLeave", 0);
+	ui.dndTypeListID = XInternAtom(ui.display, "XdndTypeList", 0);
 	ui.dndPositionID = XInternAtom(ui.display, "XdndPosition", 0);
 	ui.dndStatusID = XInternAtom(ui.display, "XdndStatus", 0);
 	ui.dndActionCopyID = XInternAtom(ui.display, "XdndActionCopy", 0);
@@ -6061,7 +6069,96 @@ bool _UIProcessEvent(XEvent *event) {
 		if (!window) return false;
 		window->cursorX = event->xmotion.x;
 		window->cursorY = event->xmotion.y;
-		_UIWindowInputEvent(window, UI_MSG_MOUSE_MOVE, 0, 0);
+
+		if (window->inDrag) {
+			// Find a window under the cursor with XdndAware.
+			Window dragDestination = DefaultRootWindow(ui.display);
+			while (true) {
+				if (!dragDestination) { break; }
+
+				int32_t propertyCount;
+				Atom *properties = XListProperties(ui.display, dragDestination, &propertyCount);
+				bool aware = false;
+
+				for (int32_t i = 0; i < propertyCount && !aware; i++) {
+					if (properties[i] == ui.dndAwareID) {
+						aware = true;
+					}
+				}
+
+				XFree(properties);
+				if (aware) { break; }
+
+				int32_t unused5, unused6, unused0, unused1;
+				uint32_t unused2;
+				Window unused3;
+				XQueryPointer(ui.display, dragDestination, &unused3, &dragDestination,
+						&unused0, &unused1, &unused5, &unused6, &unused2);
+			}
+
+			// Get its XDND version.
+			int dragDestinationVersion = -1;
+			if (dragDestination == window->dragDestination) {
+				dragDestinationVersion = window->dragDestinationVersion;
+			} else if (dragDestination != None) {
+				window->dragDestinationCanDrop = false; // Window changed.
+
+				Atom atom;
+				int32_t format;
+				unsigned long itemCount, bytesRemaining;
+				uint8_t *data;
+
+				if (Success == XGetWindowProperty(ui.display, dragDestination,
+							ui.dndAwareID, 0, 2, False, AnyPropertyType,
+							&atom, &format, &itemCount, &bytesRemaining, &data)
+						&& data && format == 32 && itemCount == 1) {
+					dragDestinationVersion = data[0];
+					// printf("dragDestinationVersion = %d\n", dragDestinationVersion);
+				}
+
+				XFree(data);
+			}
+
+			// Send XdndLeave to the old window.
+			if (dragDestination != window->dragDestination && window->dragDestinationVersion != -1) {
+				XClientMessageEvent m = { .type = ClientMessage, .display = ui.display,
+					.window = window->dragDestination, .message_type = ui.dndLeaveID, .format = 32, 
+					.data = { .l = { window->window } }};
+				XSendEvent(ui.display, m.window, False, NoEventMask, (XEvent *) &m);
+				XFlush(ui.display);
+				// printf("leave old window\n");
+			}
+
+			// Send XdndEnter to the new window.
+			if (dragDestination != window->dragDestination && dragDestinationVersion != -1) {
+				uint32_t l1 = (dragDestinationVersion < 4 ? dragDestinationVersion : 4) << 24;
+				XClientMessageEvent m = { .type = ClientMessage, .display = ui.display,
+					.window = dragDestination, .message_type = ui.dndEnterID, .format = 32, 
+					.data = { .l = { window->window, l1, ui.uriListID, None, None } }};
+				XSendEvent(ui.display, m.window, False, NoEventMask, (XEvent *) &m);
+				XFlush(ui.display);
+				// printf("enter new window %x\n", l1);
+			}
+
+			// Send XdndPosition to the window.
+			if (dragDestinationVersion != -1) {
+				int32_t x, y, unused0, unused1;
+				uint32_t unused2;
+				Window unused3, unused4;
+				XQueryPointer(ui.display, DefaultRootWindow(ui.display), &unused3, &unused4,
+						&unused0, &unused1, &x, &y, &unused2);
+				XClientMessageEvent m = { .type = ClientMessage, .display = ui.display,
+					.window = dragDestination, .message_type = ui.dndPositionID, .format = 32, 
+					.data = { .l = { window->window, 0, (x << 16) | y, CurrentTime, ui.dndActionCopyID } }};
+				XSendEvent(ui.display, m.window, False, NoEventMask, (XEvent *) &m);
+				XFlush(ui.display);
+			}
+
+			window->dragDestination = dragDestination;
+			window->dragDestinationVersion = dragDestinationVersion;
+		} else {
+			_UIWindowInputEvent(window, UI_MSG_MOUSE_MOVE, 0, 0);
+		}
 	} else if (event->type == LeaveNotify) {
 		UIWindow *window = _UIFindWindow(event->xcrossing.window);
 		if (!window) return false;
@@ -6077,6 +6174,28 @@ bool _UIProcessEvent(XEvent *event) {
 		if (!window) return false;
 		window->cursorX = event->xbutton.x;
 		window->cursorY = event->xbutton.y;
+
+		if (window->inDrag && event->type == ButtonRelease) {
+			// Send XdndLeave or XdndDrop.
+			if (window->dragDestinationVersion != -1) {
+				XClientMessageEvent m = { .type = ClientMessage, .display = ui.display,
+					.window = window->dragDestination, .format = 32, 
+					.data = { .l = { window->window } }};
+
+				if (window->dragDestinationCanDrop) {
+					m.message_type = ui.dndDropID;
+					m.data.l[2] = CurrentTime;
+				} else {
+					m.message_type = ui.dndLeaveID;
+				}
+
+				XSendEvent(ui.display, m.window, False, NoEventMask, (XEvent *) &m);
+				XFlush(ui.display);
+				// printf("dropped\n");
+			}
+
+			window->inDrag = false;
+		}
 
 		if (event->xbutton.button >= 1 && event->xbutton.button <= 3) {
 			_UIWindowInputEvent(window, (UIMessage) ((event->type == ButtonPress ? UI_MSG_LEFT_DOWN : UI_MSG_LEFT_UP)
@@ -6214,6 +6333,19 @@ bool _UIProcessEvent(XEvent *event) {
 			XSendEvent(ui.display, m.window, False, NoEventMask, (XEvent *) &m);
 			XFlush(ui.display);
 		}
+	} else if (event->type == ClientMessage && event->xclient.message_type == ui.dndStatusID) {
+		UIWindow *window = _UIFindWindow(event->xclient.window);
+		if (!window) return false;
+
+		if (window->inDrag && window->dragDestinationVersion != -1
+				&& window->dragDestination == (Window) event->xclient.data.l[0]) {
+			window->dragDestinationCanDrop = event->xclient.data.l[1] & 1;
+			// printf("window->dragDestinationCanDrop = %d\n", window->dragDestinationCanDrop);
+		}
+	} else if (event->type == ClientMessage && event->xclient.message_type == ui.dndFinishedID) {
+		UIWindow *window = _UIFindWindow(event->xclient.window);
+		if (!window) return false;
+		// printf("dnd finished %x\n", (int) event->xclient.data.l[1]);
 	} else if (event->type == SelectionNotify) {
 		UIWindow *window = _UIFindWindow(event->xselection.requestor);
 		if (!window) return false;
@@ -6287,42 +6419,60 @@ bool _UIProcessEvent(XEvent *event) {
 		window->dragSource = 0; // Drag complete.
 		_UIUpdate();
 	} else if (event->type == SelectionRequest) {
+		// printf("SelectionRequest\n");
 		UIWindow *window = _UIFindWindow(event->xclient.window);
 		if (!window) return false;
+		if (XGetSelectionOwner(ui.display, event->xselectionrequest.selection) != window->window) return false;
+		XSelectionRequestEvent requestEvent = event->xselectionrequest;
+		int changePropertyResult = 0;
 
-		if ((XGetSelectionOwner(ui.display, ui.clipboardID) == window->window)
-				&& (event->xselectionrequest.selection == ui.clipboardID)) {
-			XSelectionRequestEvent requestEvent = event->xselectionrequest;
+		if (event->xselectionrequest.selection == ui.dndSelectionID) {
+			if(requestEvent.target == ui.uriListID) {
+				changePropertyResult = XChangeProperty(requestEvent.display,
+						requestEvent.requestor, requestEvent.property,
+						requestEvent.target, 8, PropModeReplace,
+						(const unsigned char *) window->uriList, strlen(window->uriList));
+			} else if (requestEvent.target == ui.targetID) {
+				changePropertyResult = XChangeProperty(requestEvent.display,
+						requestEvent.requestor, requestEvent.property,
+						XA_ATOM, 32, PropModeReplace, (unsigned char *) &ui.uriListID, 1);
+			}
+		} else if (event->xselectionrequest.selection == ui.clipboardID) {
 			Atom utf8ID = XInternAtom(ui.display, "UTF8_STRING", 1);
 			if (utf8ID == None) utf8ID = XA_STRING;
 
 			Atom type = requestEvent.target;
 			type = (type == ui.textID) ? XA_STRING : type;
-			int changePropertyResult = 0;
 
-			if(requestEvent.target == XA_STRING || requestEvent.target == ui.textID || requestEvent.target == utf8ID) {
-				changePropertyResult = XChangeProperty(requestEvent.display, requestEvent.requestor, requestEvent.property,
-						type, 8, PropModeReplace, (const unsigned char *) ui.pasteText, strlen(ui.pasteText));
+			if(requestEvent.target == XA_STRING || requestEvent.target == ui.textID
+					|| requestEvent.target == utf8ID) {
+				changePropertyResult = XChangeProperty(requestEvent.display,
+						requestEvent.requestor, requestEvent.property,
+						type, 8, PropModeReplace,
+						(const unsigned char *) ui.pasteText, strlen(ui.pasteText));
 			} else if (requestEvent.target == ui.targetID) {
-				changePropertyResult = XChangeProperty(requestEvent.display, requestEvent.requestor, requestEvent.property,
+				changePropertyResult = XChangeProperty(requestEvent.display,
+						requestEvent.requestor, requestEvent.property,
 						XA_ATOM, 32, PropModeReplace, (unsigned char *) &utf8ID, 1);
 			}
+		} else {
+			return false;
+		}
 
-			if(changePropertyResult == 0 || changePropertyResult == 1) {
-				XSelectionEvent sendEvent = {
-					.type = SelectionNotify,
-					.serial = requestEvent.serial,
-					.send_event = requestEvent.send_event,
-					.display = requestEvent.display,
-					.requestor = requestEvent.requestor,
-					.selection = requestEvent.selection,
-					.target = requestEvent.target,
-					.property = requestEvent.property,
-					.time = requestEvent.time
-				};
+		if (changePropertyResult == 0 || changePropertyResult == 1) {
+			XSelectionEvent sendEvent = {
+				.type = SelectionNotify,
+				.serial = requestEvent.serial,
+				.send_event = requestEvent.send_event,
+				.display = requestEvent.display,
+				.requestor = requestEvent.requestor,
+				.selection = requestEvent.selection,
+				.target = requestEvent.target,
+				.property = requestEvent.property,
+				.time = requestEvent.time
+			};
 
-				XSendEvent(ui.display, requestEvent.requestor, 0, 0, (XEvent *) &sendEvent);
-			}
+			XSendEvent(ui.display, requestEvent.requestor, 0, 0, (XEvent *) &sendEvent);
 		}
 	}
 
@@ -6391,6 +6541,77 @@ bool _UIMessageLoopSingle(int *result) {
 	}
 
 	return true;
+}
+
+void UIDragFilesStart(UIWindow *window, const char **paths, size_t count) {
+	if (window->inDrag) { return; }
+	UI_FREE(window->uriList);
+
+	for (uintptr_t pass = 0, size = 0; pass < 2; pass++) {
+		if (pass) {
+			window->uriList = UI_MALLOC(size + 1);
+			size = 0;
+		}
+
+		for (uintptr_t i = 0; i < count; i++) {
+			if (pass) {
+				window->uriList[size + 0] = 'f';
+				window->uriList[size + 1] = 'i';
+				window->uriList[size + 2] = 'l';
+				window->uriList[size + 3] = 'e';
+				window->uriList[size + 4] = ':';
+				window->uriList[size + 5] = '/';
+				window->uriList[size + 6] = '/';
+			}
+
+			size += 7;
+
+			for (uintptr_t j = 0; paths[i][j]; j++) {
+				char c = paths[i][j];
+
+				if (c == ' ' || c == '<' || c == '>' || c == '#' || c == '%'
+						|| c == '+' || c == '{' || c == '}' || c == '|' || c == '\\'
+						|| c == '^' || c == '~' || c == '[' || c == ']' || c == '\''
+						|| c == ';' || c == '?' || c == ':' || c == '@'
+						|| c == '=' || c == '&' || c == '$' || c < 0x20) {
+					if (pass) {
+						const char *hexChars = "0123456789ABCDEF";
+						window->uriList[size + 0] = '%';
+						window->uriList[size + 1] = hexChars[(c & 0xF0) >> 4];
+						window->uriList[size + 2] = hexChars[c & 0x0F];
+					}
+
+					size += 3;
+				} else {
+					if (pass) {
+						window->uriList[size + 0] = c;
+					}
+
+					size++;
+				}
+			}
+
+			if (pass) {
+				window->uriList[size + 0] = '\r';
+				window->uriList[size + 1] = '\n';
+			}
+
+			size += 2;
+		}
+
+		if (pass) {
+			window->uriList[size] = 0;
+		}
+	}
+
+	XChangeProperty(ui.display, window->window,
+			ui.dndTypeListID, XA_ATOM, 32, PropModeReplace,
+			(uint8_t *) &ui.uriListID, sizeof(Atom));
+	XSetSelectionOwner(ui.display, ui.dndSelectionID, window->window, CurrentTime);
+	window->inDrag = true;
+	window->dragDestination = None;
+	window->dragDestinationVersion = -1;
+	window->dragDestinationCanDrop = false;
 }
 
 void UIEpollAdd(int fd, UIEpollDispatchPtr *ptr) {
