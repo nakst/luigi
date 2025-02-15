@@ -18,6 +18,7 @@ Various utility applications:
 
 - Nim: https://github.com/neroist/luigi (MIT)
 - Teak: https://github.com/nakst/teak/tree/master/modules/luigi (MIT; incomplete)
+- Rust: https://github.com/ankddev/luigi-rs (MIT)
 
 ## Building the example
 
