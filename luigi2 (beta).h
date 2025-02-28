@@ -675,6 +675,8 @@ UIElement *UIElementCreate(size_t bytes, UIElement *parent, uint32_t flags,
 	int (*messageClass)(UIElement *, UIMessage, int, void *), const char *cClassName);
 
 UICheckbox *UICheckboxCreate(UIElement *parent, uint32_t flags, const char *label, ptrdiff_t labelBytes);
+void UICheckboxSetLabel(UICheckbox *checkbox, const char *string, ptrdiff_t stringBytes);
+
 UIColorPicker *UIColorPickerCreate(UIElement *parent, uint32_t flags);
 UIMDIClient *UIMDIClientCreate(UIElement *parent, uint32_t flags);
 UIMDIChild *UIMDIChildCreate(UIElement *parent, uint32_t flags, UIRectangle initialBounds, const char *title, ptrdiff_t titleBytes);
@@ -2116,6 +2118,13 @@ UICheckbox *UICheckboxCreate(UIElement *parent, uint32_t flags, const char *labe
 	UICheckbox *box = (UICheckbox *) UIElementCreate(sizeof(UICheckbox), parent, flags | UI_ELEMENT_TAB_STOP, _UICheckboxMessage, "Checkbox");
 	box->label = UIStringCopy(label, (box->labelBytes = labelBytes));
 	return box;
+}
+
+void UICheckboxSetLabel(UICheckbox *checkbox, const char *string, ptrdiff_t stringBytes) {
+	UI_FREE(checkbox->label);
+	checkbox->label = UIStringCopy(string, (checkbox->labelBytes = stringBytes));
+	UIElementMeasurementsChanged(&checkbox->e, 1);
+	UIElementRepaint(&checkbox->e, NULL);
 }
 
 /////////////////////////////////////////
